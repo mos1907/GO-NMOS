@@ -1,22 +1,28 @@
 <script>
-  export let registryNodes = [];
-  export let registryDevices = [];
-  export let registrySenders = [];
-  export let registryReceivers = [];
-  export let selectedRegistryNodeId = "";
-  export let selectedRegistryDeviceId = "";
+  let {
+    registryNodes = [],
+    registryDevices = [],
+    registrySenders = [],
+    registryReceivers = [],
+    selectedRegistryNodeId = "",
+    selectedRegistryDeviceId = "",
+    onSelectNode,
+    onSelectDevice,
+    isPatchTakeReady,
+    selectedPatchSender = null,
+    selectedPatchReceiver = null,
+    nmosIS05Base = "",
+    nmosTakeBusy = false,
+    onSelectPatchSender,
+    onSelectPatchReceiver,
+    onExecutePatchTake,
+  } = $props();
 
-  export let onSelectNode;
-  export let onSelectDevice;
-  export let isPatchTakeReady;
-  export let selectedPatchSender = null;
-  export let selectedPatchReceiver = null;
-  export let nmosIS05Base = "";
-  export let nmosTakeBusy = false;
-
-  export let onSelectPatchSender;
-  export let onSelectPatchReceiver;
-  export let onExecutePatchTake;
+  // Ensure arrays are never null (reactive)
+  let safeRegistryNodes = $derived(registryNodes || []);
+  let safeRegistryDevices = $derived(registryDevices || []);
+  let safeRegistrySenders = $derived(registrySenders || []);
+  let safeRegistryReceivers = $derived(registryReceivers || []);
 </script>
 
 <section class="mt-4 space-y-4">
@@ -29,15 +35,15 @@
     </div>
     <div class="text-[11px] text-slate-400 space-y-0.5 text-right">
       <p>
-        Registry: Nodes {registryNodes.length} · Devices {registryDevices.length}
+        Registry: Nodes {safeRegistryNodes.length} · Devices {safeRegistryDevices.length}
       </p>
       <p>
-        Endpoints: Senders {registrySenders.length} · Receivers {registryReceivers.length}
+        Endpoints: Senders {safeRegistrySenders.length} · Receivers {safeRegistryReceivers.length}
       </p>
     </div>
   </header>
 
-  {#if registryNodes.length === 0 && registrySenders.length === 0 && registryReceivers.length === 0}
+  {#if safeRegistryNodes.length === 0 && safeRegistrySenders.length === 0 && safeRegistryReceivers.length === 0}
     <div class="rounded-xl border border-gray-800 bg-gray-900 p-8">
       <div class="flex flex-col items-center justify-center text-center">
         <svg class="w-16 h-16 text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,10 +61,10 @@
       <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
         <div class="flex items-center justify-between mb-1">
           <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Nodes</h4>
-          <span class="text-[11px] text-slate-400">{registryNodes.length} nodes</span>
+          <span class="text-[11px] text-slate-400">{safeRegistryNodes.length} nodes</span>
         </div>
         <div class="space-y-1 max-h-40 overflow-auto pr-1">
-          {#each registryNodes as node}
+          {#each safeRegistryNodes as node}
             <button
               type="button"
               class="w-full text-left px-3 py-1.5 rounded-lg border text-[11px] {selectedRegistryNodeId === node.id
@@ -76,14 +82,14 @@
           <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Devices</h4>
           <span class="text-[11px] text-slate-400">
             {#if selectedRegistryNodeId}
-              {registryDevices.filter((d) => d.node_id === selectedRegistryNodeId).length} of {registryDevices.length}
+              {safeRegistryDevices.filter((d) => d.node_id === selectedRegistryNodeId).length} of {safeRegistryDevices.length}
             {:else}
-              {registryDevices.length} devices
+              {safeRegistryDevices.length} devices
             {/if}
           </span>
         </div>
         <div class="space-y-1 max-h-48 overflow-auto pr-1">
-          {#each registryDevices.filter((d) => !selectedRegistryNodeId || d.node_id === selectedRegistryNodeId) as dev}
+          {#each safeRegistryDevices.filter((d) => !selectedRegistryNodeId || d.node_id === selectedRegistryNodeId) as dev}
             <button
               type="button"
               class="w-full text-left px-3 py-1.5 rounded-lg border text-[11px] {selectedRegistryDeviceId === dev.id
@@ -114,10 +120,10 @@
         </div>
 
         <div class="space-y-1 max-h-56 overflow-auto pr-1 text-[11px]">
-          {#if registrySenders.length === 0}
+          {#if safeRegistrySenders.length === 0}
             <p class="text-slate-500 italic">No senders in registry.</p>
           {:else}
-            {#each registrySenders.filter((s) => !selectedRegistryDeviceId || s.device_id === selectedRegistryDeviceId) as s}
+            {#each safeRegistrySenders.filter((s) => !selectedRegistryDeviceId || s.device_id === selectedRegistryDeviceId) as s}
               <button
                 type="button"
                 class="w-full text-left px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-svelte/70 hover:bg-slate-900 flex flex-col gap-0.5"
@@ -160,13 +166,13 @@
             <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Destinations (Receivers)</h4>
             <p class="text-[11px] text-slate-400">Choose a receiver to patch to.</p>
           </div>
-          <span class="text-[11px] text-slate-400">{registryReceivers.length} receivers</span>
+          <span class="text-[11px] text-slate-400">{safeRegistryReceivers.length} receivers</span>
         </div>
         <div class="space-y-1 max-h-72 overflow-auto pr-1 text-[11px]">
-          {#if registryReceivers.length === 0}
+          {#if safeRegistryReceivers.length === 0}
             <p class="text-slate-500 italic">No receivers in registry.</p>
           {:else}
-            {#each registryReceivers.filter((r) => !selectedRegistryDeviceId || r.device_id === selectedRegistryDeviceId) as r}
+            {#each safeRegistryReceivers.filter((r) => !selectedRegistryDeviceId || r.device_id === selectedRegistryDeviceId) as r}
               <button
                 type="button"
                 class="w-full text-left px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-svelte/70 hover:bg-slate-900 flex flex-col gap-0.5"
