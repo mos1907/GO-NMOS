@@ -5,7 +5,7 @@ Production-oriented rewrite baseline of NMOS management stack using **Go + Svelt
 ## Stack
 
 - Backend: Go 1.22, chi router, JWT auth, PostgreSQL (pgx)
-- Frontend: Svelte 5 + Vite
+- Frontend: Svelte 5 + Vite + Tailwind CSS
 - Infra: Docker Compose (PostgreSQL + Mosquitto + backend + frontend)
 
 ## Project Structure
@@ -26,28 +26,31 @@ go-NMOS/
 │   │   │       ├── auth.go         # Authentication endpoints
 │   │   │       ├── flows.go        # Flow CRUD operations
 │   │   │       ├── nmos.go         # NMOS discovery & apply
+│   │   │       ├── nmos_registry.go # NMOS Registry (RDS) discovery
 │   │   │       ├── checker.go     # Collision detection
-│   │   │       ├── automation.go  # Automation jobs
-│   │   │       ├── planner.go     # Address planner
-│   │   │       ├── users.go       # User management
-│   │   │       ├── settings.go    # Settings management
-│   │   │       ├── logs.go        # Log viewing/download
-│   │   │       ├── handler.go     # Router & middleware setup
+│   │   │       ├── automation.go   # Automation jobs
+│   │   │       ├── planner.go      # Address planner
+│   │   │       ├── users.go        # User management
+│   │   │       ├── settings.go     # Settings management
+│   │   │       ├── logs.go         # Log viewing/download
+│   │   │       ├── handler.go      # Router & middleware setup
 │   │   │       └── ...
 │   │   ├── models/
-│   │   │   └── models.go          # Data models
+│   │   │   ├── models.go           # Data models
+│   │   │   └── nmos.go             # NMOS-specific models
 │   │   ├── repository/
-│   │   │   ├── repository.go      # Repository interface
-│   │   │   └── postgres_repo.go   # PostgreSQL implementation
+│   │   │   ├── repository.go       # Repository interface
+│   │   │   └── postgres_repo.go    # PostgreSQL implementation
 │   │   ├── mqtt/
-│   │   │   └── client.go          # MQTT event publishing
+│   │   │   └── client.go           # MQTT event publishing
 │   │   └── service/
 │   │       └── automation_runner.go # Scheduled job runner
 │   ├── migrations/                  # Database migrations
 │   │   ├── 0001_init.sql
 │   │   ├── 0002_seed_admin.sql
 │   │   ├── 0003_checker_automation.sql
-│   │   └── 0004_address_buckets.sql
+│   │   ├── 0004_address_buckets.sql
+│   │   └── 0005_nmos_registry.sql
 │   ├── Dockerfile
 │   ├── go.mod
 │   └── env.example                  # Environment variables template
@@ -56,16 +59,32 @@ go-NMOS/
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── LoginPage.svelte   # Login UI
-│   │   │   └── DashboardPage.svelte # Main dashboard
+│   │   │   └── DashboardPage.svelte # Main dashboard orchestrator
+│   │   ├── components/             # Feature-specific components
+│   │   │   ├── DashboardHomeView.svelte    # Dashboard overview
+│   │   │   ├── FlowsView.svelte            # Flow list & management
+│   │   │   ├── SearchView.svelte           # Flow search
+│   │   │   ├── NewFlowView.svelte          # Create new flow
+│   │   │   ├── NMOSView.svelte             # NMOS discovery & apply
+│   │   │   ├── NMOSPatchView.svelte        # NMOS Patch Panel (IS-04/IS-05)
+│   │   │   ├── TopologyView.svelte         # NMOS Topology view
+│   │   │   ├── CheckerView.svelte          # Collision checker
+│   │   │   ├── AutomationJobsView.svelte   # Automation jobs
+│   │   │   ├── PlannerView.svelte         # Address planner
+│   │   │   ├── AddressMapView.svelte      # Address map
+│   │   │   ├── UsersView.svelte           # User management
+│   │   │   ├── SettingsView.svelte        # Settings
+│   │   │   └── LogsView.svelte            # Log viewer
 │   │   ├── lib/
-│   │   │   ├── api.js             # API client utilities
+│   │   │   ├── api.js              # API client utilities
 │   │   │   └── mqtt.js            # MQTT WebSocket client
 │   │   ├── stores/
-│   │   │   └── auth.js           # Authentication store
+│   │   │   └── auth.js            # Authentication store
 │   │   ├── App.svelte
 │   │   └── main.js
 │   ├── Dockerfile
 │   ├── package.json
+│   ├── tailwind.config.cjs        # Tailwind CSS configuration
 │   └── vite.config.js
 │
 ├── deploy/
@@ -80,60 +99,179 @@ go-NMOS/
 └── MQTT_EXPLANATION_EN.md         # MQTT guide (English)
 ```
 
-## Features included now
+## Features
 
-- JWT login and `/api/me`
-- Flow CRUD baseline
-  - `GET /api/flows?limit=50&offset=0&sort_by=updated_at&sort_order=desc`
-  - `GET /api/flows/summary`
-  - `GET /api/flows/search?q=...&limit=50&offset=0&sort_by=updated_at&sort_order=desc`
-  - `GET /api/flows/export`
-  - `POST /api/flows`
-  - `POST /api/flows/import`
-  - `PATCH /api/flows/{id}`
-  - `POST /api/flows/{id}/lock` (lock/unlock flow)
-  - `DELETE /api/flows/{id}` (admin)
-- NMOS discover
-  - `GET /api/nmos/discover?base_url=http://<host>:<port>`
-  - `POST /api/nmos/discover` body: `{ "base_url": "http://<host>:<port>" }`
-  - `GET /api/flows/{id}/nmos/check?base_url=http://<host>:<port>`
-  - `POST /api/flows/{id}/nmos/apply` body: `{ "connection_url": "http://.../staged", "sender_id": "optional" }`
-- Checker
-  - `GET /api/checker/collisions`
-  - `GET /api/checker/latest?kind=collisions`
-- Automation jobs
-  - `GET /api/automation/jobs`
-  - `GET /api/automation/jobs/{job_id}`
-  - `PUT /api/automation/jobs/{job_id}`
-  - `POST /api/automation/jobs/{job_id}/enable`
-  - `POST /api/automation/jobs/{job_id}/disable`
-  - `GET /api/automation/summary`
-- Address map
-  - `GET /api/address-map`
-- Planner buckets
-  - `GET /api/address/buckets/privileged`
-  - `GET /api/address/buckets/{id}/children`
-  - `POST /api/address/buckets/parent`
-  - `POST /api/address/buckets/child`
-  - `PATCH /api/address/buckets/{id}`
-  - `DELETE /api/address/buckets/{id}`
-  - `GET /api/address/buckets/export`
-  - `POST /api/address/buckets/import`
-- Logs
-  - `GET /api/logs?kind=api|audit&lines=200`
-  - `GET /api/logs/download?kind=api|audit`
-- User management baseline
-  - `GET /api/users`
-  - `POST /api/users`
-- Settings baseline
-  - `GET /api/settings`
-  - `PATCH /api/settings/{key}`
-- Health check: `GET /api/health`
-  - includes DB connectivity status
-- Migration runner with schema bootstrap
-- Web UI tabs: Dashboard / Flows / Search / New Flow / Users / NMOS / Checker / Automation / Planner / Address Map / Logs / Settings
+### Core Features
 
-## MQTT Realtime Updates (Enabled by Default)
+- **JWT Authentication** - Secure login with role-based access control
+- **Flow Management** - CRUD operations for multicast flows
+- **NMOS Integration** - IS-04 discovery and IS-05 connection management
+- **NMOS Patch Panel** - Visual router-style interface for sender/receiver patching
+- **NMOS Registry (RDS) Support** - Connect to IS-04 Query API registries
+- **Collision Detection** - Automatic detection of IP/port conflicts
+- **Automation Jobs** - Scheduled tasks for flow management
+- **Address Planning** - Hierarchical address bucket management
+- **Real-time Updates** - MQTT-based live UI updates
+
+### API Endpoints
+
+#### Authentication
+- `POST /api/login` - User login
+- `GET /api/me` - Current user info
+
+#### Flows
+- `GET /api/flows?limit=50&offset=0&sort_by=updated_at&sort_order=desc`
+- `GET /api/flows/summary`
+- `GET /api/flows/search?q=...&limit=50&offset=0`
+- `GET /api/flows/export`
+- `POST /api/flows`
+- `POST /api/flows/import`
+- `PATCH /api/flows/{id}`
+- `POST /api/flows/{id}/lock` (lock/unlock flow)
+- `DELETE /api/flows/{id}` (admin)
+
+#### NMOS Discovery & Apply
+- `GET /api/nmos/discover?base_url=http://<host>:<port>`
+- `POST /api/nmos/discover` body: `{ "base_url": "http://<host>:<port>" }`
+- `POST /api/flows/{id}/nmos/apply` body: `{ "connection_url": "http://.../staged", "sender_id": "optional" }`
+
+#### NMOS Registry (RDS)
+- `POST /api/nmos/registry/discover-nodes` body: `{ "query_url": "http://<registry>:<port>" }`
+  - Discovers nodes from an IS-04 Query API registry
+  - Supports both root URLs and versioned Query API URLs
+
+#### Checker
+- `GET /api/checker/collisions`
+- `GET /api/checker/latest?kind=collisions`
+
+#### Automation
+- `GET /api/automation/jobs`
+- `GET /api/automation/jobs/{job_id}`
+- `PUT /api/automation/jobs/{job_id}`
+- `POST /api/automation/jobs/{job_id}/enable`
+- `POST /api/automation/jobs/{job_id}/disable`
+- `GET /api/automation/summary`
+
+#### Address Planning
+- `GET /api/address-map`
+- `GET /api/address/buckets/privileged`
+- `GET /api/address/buckets/{id}/children`
+- `POST /api/address/buckets/parent`
+- `POST /api/address/buckets/child`
+- `PATCH /api/address/buckets/{id}`
+- `DELETE /api/address/buckets/{id}`
+- `GET /api/address/buckets/export`
+- `POST /api/address/buckets/import`
+
+#### Logs
+- `GET /api/logs?kind=api|audit&lines=200`
+- `GET /api/logs/download?kind=api|audit`
+
+#### Users & Settings
+- `GET /api/users`
+- `POST /api/users`
+- `GET /api/settings`
+- `PATCH /api/settings/{key}`
+
+#### Health
+- `GET /api/health` - Health check with DB connectivity status
+
+## Usage Guide
+
+### Getting Started
+
+1. **Start the application**:
+   ```bash
+   cp backend/env.example backend/.env
+   make up
+   ```
+
+2. **Access the UI**:
+   - Frontend: `http://localhost:4173` (or your configured port)
+   - Default credentials:
+     - Username: `admin`
+     - Password: `change-this-password`
+
+### Finding and Adding NMOS Nodes
+
+#### Method 1: Manual Node Addition
+
+1. Navigate to **NMOS Patch** tab in the dashboard
+2. Click **"Add Node"** button
+3. Enter:
+   - **Node Name**: A descriptive name (e.g., "Camera Router")
+   - **IS-04 URL**: The base URL of your NMOS node (e.g., `http://192.168.1.100:8080`)
+4. Click **"Add Node"**
+5. The system will automatically derive the IS-05 connection endpoint
+
+#### Method 2: Connect to NMOS Registry (RDS)
+
+The **Connect RDS** feature allows you to discover multiple nodes from a central NMOS Registry (IS-04 Query API).
+
+1. Navigate to **NMOS Patch** tab
+2. Click **"Connect RDS"** button
+3. Enter the **Registry Query API URL**:
+   - Root URL: `http://registry-host:port`
+   - Or versioned URL: `http://registry-host:port/x-nmos/query/v1.3`
+4. Click **"Discover Nodes"**
+5. The system will query the registry and list all available nodes
+6. Select the nodes you want to add (use **"Select All"** for convenience)
+7. Click **"Add Selected Nodes"**
+
+**Example Registry URLs**:
+- `http://192.168.1.50:8080`
+- `http://registry.example.com:8080/x-nmos/query/v1.3`
+
+### Using the NMOS Patch Panel
+
+The **NMOS Patch Panel** provides a visual router-style interface for connecting IS-04 senders to receivers:
+
+1. **Select Source Node**: Choose a node from the "Sources" dropdown
+2. **Select Destination Node**: Choose a node from the "Destinations" dropdown
+3. **Filter Sources**: Use the search box or format filter to find specific senders
+4. **Filter Destinations**: Use the search box or format filter to find specific receivers
+5. **Select Sender**: Click on a sender from the Sources list
+6. **Select Receiver**: Click on a receiver from the Destinations list
+7. **Apply Patch**: Click the green **"TAKE"** button in the center to apply the connection
+
+**Status Indicators**:
+- Green dot: Ready to patch (both sender and receiver selected, IS-05 URL configured)
+- Gray dot: Waiting for selection or missing configuration
+
+### NMOS Discovery (Legacy View)
+
+The **NMOS** tab provides a simpler discovery interface:
+
+1. Enter the **IS-04 Base URL** of your NMOS node
+2. Click **"Discover"** to fetch receivers
+3. Select a **Source Flow** from your local flows
+4. Select a **Destination Receiver** from discovered receivers
+5. Enter the **IS-05 Base URL** (typically: `base_url + /x-nmos/connection/<version>`)
+6. Click **"TAKE"** to apply the connection
+
+### Flow Management
+
+- **View Flows**: Navigate to **Flows** tab to see all flows
+- **Search**: Use **Search** tab for quick flow lookup by name, IP, or flow ID
+- **Create Flow**: Use **New Flow** tab (requires edit permissions)
+- **Lock/Unlock**: Click lock/unlock button in Flows view to prevent modifications
+- **Export/Import**: Use Settings tab to export flows as JSON or import from file
+
+### Collision Detection
+
+1. Navigate to **Checker** tab
+2. Click **"Run Collision Check"**
+3. Review detected conflicts (IP/port collisions)
+4. Resolve conflicts by modifying flows or address assignments
+
+### Automation Jobs
+
+1. Navigate to **Automation** tab (admin/editor only)
+2. View configured automation jobs
+3. Enable/disable jobs as needed
+4. Jobs run automatically based on their schedule
+
+## MQTT Realtime Updates
 
 MQTT is **enabled by default** for realtime event notifications:
 - Flow create/update/delete events are published to MQTT topics:
@@ -144,43 +282,42 @@ MQTT is **enabled by default** for realtime event notifications:
 
 ## Quick Start
 
-Prerequisites:
+### Prerequisites
 
 - Docker Desktop / OrbStack (or docker engine + docker compose)
+- Go 1.22+ (for local development)
+- Node.js 18+ (for local frontend development)
+
+### Docker Compose Setup
 
 ```bash
-cd /Users/muratdemirci/nmosProject/go-NMOS
-# backend bootstrap credentials and secret
+# Clone the repository
+git clone <repository-url>
+cd GO-NMOS
+
+# Configure backend environment
 cp backend/env.example backend/.env
+# Edit backend/.env and set:
+# - DATABASE_URL
+# - JWT_SECRET (use a strong secret!)
+# - CORS_ORIGIN (frontend URL)
+
+# Start all services
 make up
+
+# Or start only database (for local development)
+docker compose up -d postgres mosquitto
 ```
 
 After startup:
 
-- API: `http://192.168.248.133:9090/api/health`
-- UI: `http://192.168.248.133:4173`
-- MQTT: `ws://192.168.248.133:9001`
+- API: `http://localhost:9090/api/health`
+- UI: `http://localhost:4173`
+- MQTT: `ws://localhost:9001`
 
-Default bootstrap admin from `backend/env.example`:
+### Local Development
 
-- username: `admin`
-- password: `change-this-password`
-
-You must set a strong `JWT_SECRET` and change admin password before production rollout.
-
-Logging:
-
-- Backend writes API/Audit logs to `LOG_DIR` (default `/tmp/go-nmos-logs`)
-- In Docker compose, logs are mounted to host `./logs`
-
-Rate limit:
-
-- Global request limiter is enabled by default.
-- Configure requests per minute with `RATE_LIMIT_RPM` in backend env.
-
-## Local Development
-
-Backend:
+**Backend**:
 
 ```bash
 cd backend
@@ -188,7 +325,7 @@ go mod tidy
 go run ./cmd/api
 ```
 
-Frontend:
+**Frontend**:
 
 ```bash
 cd frontend
@@ -196,17 +333,103 @@ npm install
 npm run dev
 ```
 
-## Security notes for production
+**Hybrid Setup** (Database in Docker, Backend/Frontend locally):
+
+1. Start only database services:
+   ```bash
+   docker compose up -d postgres mosquitto
+   ```
+
+2. Configure `backend/.env`:
+   ```env
+   DATABASE_URL=postgres://user:pass@localhost:5432/postgres
+   CORS_ORIGIN=http://localhost:4173
+   ```
+
+3. Run backend locally:
+   ```bash
+   cd backend
+   go run ./cmd/api
+   ```
+
+4. Run frontend locally:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+## Configuration
+
+### Backend Environment Variables
+
+See `backend/env.example` for all available options. Key variables:
+
+- `DATABASE_URL` - PostgreSQL connection string
+- `JWT_SECRET` - Secret key for JWT token signing (use a strong value!)
+- `CORS_ORIGIN` - Allowed frontend origin (e.g., `http://localhost:4173`)
+- `MQTT_ENABLED` - Enable/disable MQTT (`true`/`false`)
+- `RATE_LIMIT_RPM` - Requests per minute limit
+
+### Frontend Configuration
+
+Frontend uses Vite and reads API URL from environment. Default API endpoint: `http://localhost:9090`
+
+## Logging
+
+- Backend writes API/Audit logs to `LOG_DIR` (default `/tmp/go-nmos-logs`)
+- In Docker compose, logs are mounted to host `./logs`
+- View logs in UI via **Logs** tab (admin only)
+
+## Security Notes for Production
 
 - Put backend behind reverse proxy with TLS
-- Use strong `JWT_SECRET`
+- Use strong `JWT_SECRET` (generate with `openssl rand -base64 32`)
 - Replace seeded admin credentials immediately
-- Restrict CORS origin
+- Restrict CORS origin to your frontend domain
 - Add rate-limit, audit trail, and secret management (Vault/KMS)
 - Add CI checks (test, lint, SAST, dependency scanning)
+- Review and restrict user permissions
 
 ## CI
 
 - GitHub Actions workflow is included at `.github/workflows/ci.yml`
 - Backend job: `go mod tidy` consistency + `go test ./...`
 - Frontend job: `npm install` + `npm run build`
+
+## Troubleshooting
+
+### Database Connection Issues
+
+- Verify `DATABASE_URL` in `backend/.env` is correct
+- Check PostgreSQL is running: `docker compose ps`
+- Check logs: `docker compose logs postgres`
+
+### CORS Errors
+
+- Ensure `CORS_ORIGIN` in `backend/.env` matches your frontend URL exactly
+- Restart backend after changing `.env`
+
+### NMOS Discovery Fails
+
+- Verify the NMOS node is accessible from the backend server
+- Check IS-04 endpoint is correct (typically `/x-nmos/query/v1.3`)
+- Check network connectivity and firewall rules
+
+### RDS Connection Issues
+
+- Verify Registry Query API URL is correct
+- Ensure registry is accessible from backend
+- Check registry supports IS-04 Query API (not just Node API)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+MIT License allows you to:
+- Use the software commercially
+- Modify the software
+- Distribute the software
+- Sublicense
+- Use privately
+
+The only requirement is to include the original copyright and license notice.

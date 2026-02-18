@@ -83,6 +83,7 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/apply", h.ApplyFlowNMOS)
 
 		// Internal NMOS registry (IS-04 style) read-only APIs
+		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/registry/discover-nodes", h.DiscoverNMOSRegistryNodes)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/nodes", h.ListNMOSNodesHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/devices", h.ListNMOSDevicesHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/flows", h.ListNMOSFlowsHandler)

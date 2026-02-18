@@ -62,22 +62,22 @@
 
     <div class="grid md:grid-cols-[3fr_1fr_3fr] gap-6 mt-4 items-stretch">
       <!-- Local flows (sources) -->
-      <div class="rounded-xl bg-nmos-bg border border-svelte/40 p-4 flex flex-col">
+      <div class="rounded-xl bg-gray-900 border border-gray-800 p-4 flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <h4 class="text-base font-semibold text-black">Sources (Local Flows)</h4>
-          <span class="text-sm text-black/70">{flows.length} flows</span>
+          <h4 class="text-base font-semibold text-gray-100">Sources (Local Flows)</h4>
+          <span class="text-sm text-gray-400">{flows.length} flows</span>
         </div>
-        <div class="overflow-auto max-h-72 divide-y divide-svelte/20">
+        <div class="overflow-auto max-h-72 divide-y divide-gray-800">
           {#each flows as f}
             <button
               type="button"
-              class="w-full text-left px-3 py-2 text-sm hover:bg-svelte/20 flex justify-between gap-2 {selectedNMOSFlow && selectedNMOSFlow.id === f.id
-                ? 'bg-svelte/30 border-l-4 border-svelte'
+              class="w-full text-left px-3 py-2 text-sm hover:bg-gray-800 flex justify-between gap-2 {selectedNMOSFlow && selectedNMOSFlow.id === f.id
+                ? 'bg-orange-600/10 border-l-4 border-orange-500'
                 : ''}"
               on:click={() => onSelectFlow?.(f)}
             >
-              <span class="truncate text-black font-medium">{f.display_name}</span>
-              <span class="text-[12px] text-black/60 truncate">{f.multicast_ip}:{f.port}</span>
+              <span class="truncate text-gray-100 font-medium">{f.display_name}</span>
+              <span class="text-[12px] text-gray-400 truncate">{f.multicast_ip}:{f.port}</span>
             </button>
           {/each}
         </div>
@@ -95,8 +95,8 @@
           </svg>
           <span>{nmosTakeBusy ? "TAKING..." : "TAKE"}</span>
         </button>
-        <div class="flex items-center gap-2 text-sm text-black px-4 py-2 rounded-full bg-svelte/20 border border-svelte/40">
-          <span class="inline-flex h-3 w-3 rounded-full {isTakeReady?.() ? 'bg-svelte' : 'bg-black/30'}"></span>
+        <div class="flex items-center gap-2 text-sm text-gray-200 px-4 py-2 rounded-full bg-gray-900 border border-gray-700">
+          <span class="inline-flex h-3 w-3 rounded-full {isTakeReady?.() ? 'bg-svelte' : 'bg-gray-600'}"></span>
           <span class="font-medium">
             {#if !selectedNMOSFlow && !selectedNMOSReceiver}
               Select flow and receiver
@@ -114,22 +114,22 @@
       </div>
 
       <!-- NMOS receivers (destinations) -->
-      <div class="rounded-xl bg-nmos-bg border border-svelte/40 p-4 flex flex-col">
+      <div class="rounded-xl bg-gray-900 border border-gray-800 p-4 flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <h4 class="text-base font-semibold text-black">Destinations (NMOS Receivers)</h4>
-          <span class="text-sm text-black/70">{(nmosResult.receivers || []).length} receivers</span>
+          <h4 class="text-base font-semibold text-gray-100">Destinations (NMOS Receivers)</h4>
+          <span class="text-sm text-gray-400">{(nmosResult.receivers || []).length} receivers</span>
         </div>
-        <div class="overflow-auto max-h-72 divide-y divide-svelte/20">
+        <div class="overflow-auto max-h-72 divide-y divide-gray-800">
           {#each nmosResult.receivers || [] as r}
             <button
               type="button"
-              class="w-full text-left px-3 py-2 text-sm hover:bg-svelte/20 flex justify-between gap-2 {selectedNMOSReceiver && selectedNMOSReceiver.id === r.id
-                ? 'bg-svelte/30 border-l-4 border-svelte'
+              class="w-full text-left px-3 py-2 text-sm hover:bg-gray-800 flex justify-between gap-2 {selectedNMOSReceiver && selectedNMOSReceiver.id === r.id
+                ? 'bg-orange-600/10 border-l-4 border-orange-500'
                 : ''}"
               on:click={() => onSelectReceiver?.(r)}
             >
-              <span class="truncate text-black font-medium">{r.label}</span>
-              <span class="text-[12px] text-black/60 uppercase truncate">{r.format}</span>
+              <span class="truncate text-gray-100 font-medium">{r.label}</span>
+              <span class="text-[12px] text-gray-400 uppercase truncate">{r.format}</span>
             </button>
           {/each}
         </div>

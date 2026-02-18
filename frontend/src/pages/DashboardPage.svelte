@@ -78,6 +78,13 @@
   let receiverFilterText = "";
   let senderFormatFilter = "";
   let receiverFormatFilter = "";
+  // RDS (Registry) connect modal state
+  let showConnectRDSModal = false;
+  let rdsQueryUrl = "";
+  let rdsDiscovering = false;
+  let rdsNodes = [];
+  let rdsSelectedIds = [];
+  let rdsError = "";
   let plannerRoots = [];
   let plannerChildren = [];
   let selectedPlannerRoot = null;
@@ -366,6 +373,7 @@
 
   // NMOS Patch GUI node management (frontend-only, localStorage)
   const NODES_KEY = "go_nmos_nodes";
+  const RDS_QUERY_KEY = "go_nmos_rds_query_url";
 
   function loadNodes() {
     try {
@@ -395,6 +403,92 @@
     newNodeName = "";
     newNodeUrl = "";
     showAddNodeModal = true;
+  }
+
+  function openRDSModal() {
+    try {
+      rdsQueryUrl = localStorage.getItem(RDS_QUERY_KEY) || rdsQueryUrl;
+    } catch {
+      // ignore
+    }
+    rdsError = "";
+    rdsNodes = [];
+    rdsSelectedIds = [];
+    showConnectRDSModal = true;
+  }
+
+  function closeRDSModal() {
+    showConnectRDSModal = false;
+    rdsDiscovering = false;
+  }
+
+  async function discoverRegistryNodes() {
+    rdsError = "";
+    rdsNodes = [];
+    rdsSelectedIds = [];
+    rdsDiscovering = true;
+    const q = rdsQueryUrl.trim();
+    try {
+      try {
+        localStorage.setItem(RDS_QUERY_KEY, q);
+      } catch {
+        // ignore
+      }
+      const res = await api("/nmos/registry/discover-nodes", {
+        method: "POST",
+        token,
+        body: { query_url: q }
+      });
+      rdsNodes = res.nodes || [];
+      rdsSelectedIds = (rdsNodes || []).map((n) => n.id).filter(Boolean);
+    } catch (e) {
+      rdsError = e.message;
+    } finally {
+      rdsDiscovering = false;
+    }
+  }
+
+  function toggleRegistryNode(id) {
+    if (!id) return;
+    const set = new Set(rdsSelectedIds || []);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    rdsSelectedIds = Array.from(set);
+  }
+
+  function selectAllRegistryNodes() {
+    rdsSelectedIds = (rdsNodes || []).map((n) => n.id).filter(Boolean);
+  }
+
+  function addSelectedRegistryNodes() {
+    const selected = new Set(rdsSelectedIds || []);
+    const candidates = (rdsNodes || []).filter((n) => selected.has(n.id));
+    if (candidates.length === 0) return;
+
+    const norm = (s) => (s || "").trim().replace(/\/$/, "");
+    const existing = new Set((nmosNodes || []).map((n) => norm(n.base_url)));
+
+    const toAdd = [];
+    for (const n of candidates) {
+      const base = norm(n.base_url || "");
+      if (!base) continue;
+      if (existing.has(base)) continue;
+      existing.add(base);
+      toAdd.push({
+        id: `rds-${n.id || Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: (n.label || n.id || base).trim(),
+        base_url: base
+      });
+    }
+
+    if (toAdd.length === 0) {
+      rdsError = "No new nodes to add (duplicates or missing base_url).";
+      return;
+    }
+
+    nmosNodes = [...nmosNodes, ...toAdd];
+    saveNodes();
+    showConnectRDSModal = false;
   }
 
   function cancelAddNode() {
@@ -735,33 +829,33 @@
   });
 </script>
 
-<main class="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-50">
-  <div class="max-w-6xl mx-auto px-4 py-8 space-y-5">
-  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
-    <div class="space-y-1">
-      <h1 class="text-2xl font-semibold tracking-tight text-slate-50">
+<main class="min-h-screen bg-[#0a0d14] text-gray-100">
+  <div class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+  <header class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-800">
+    <div class="space-y-2">
+      <h1 class="text-2xl font-bold tracking-tight text-white">
         go-NMOS
-        <span class="ml-2 text-[11px] align-middle rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5 font-medium text-slate-200 uppercase tracking-[0.18em]">
+        <span class="ml-2 text-xs align-middle px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-medium uppercase tracking-wider">
           Dashboard
         </span>
       </h1>
-      <p class="text-xs text-slate-400">
-        Signed in as <span class="font-semibold text-slate-100">{user?.username}</span>
-        <span class="mx-2 h-3 w-px inline-block bg-slate-600 align-middle"></span>
-        <span class="uppercase text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-100">
+      <p class="text-sm text-gray-400">
+        Signed in as <span class="font-medium text-gray-200">{user?.username}</span>
+        <span class="mx-2 text-gray-600">•</span>
+        <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-300 text-xs font-medium uppercase">
           {user?.role}
         </span>
       </p>
     </div>
-    <div class="flex items-center gap-2 text-xs">
+    <div class="flex items-center gap-2">
       <button
-        class="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-100 font-medium shadow-sm transition"
+        class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium transition-colors border border-gray-700"
         on:click={refreshAll}
       >
         Refresh
       </button>
       <button
-        class="px-3 py-1.5 rounded-md bg-svelte hover:bg-orange-400 text-slate-950 font-semibold shadow-sm transition"
+        class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold transition-colors"
         on:click={onLogout}
       >
         Logout
@@ -769,27 +863,27 @@
     </div>
   </header>
 
-  <nav class="flex flex-wrap gap-2 border-b border-slate-800 pb-3 text-xs mt-3">
+  <nav class="flex flex-wrap gap-2 pb-4 border-b border-gray-800">
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'dashboard'
-        ? 'border-svelte bg-slate-900 text-svelte-soft font-semibold shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {currentView === 'dashboard'
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "dashboard")}
     >
       Dashboard
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'flows'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "flows")}
     >
       Flows
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'search'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "search")}
     >
       Search
@@ -797,8 +891,8 @@
     {#if canEdit}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'newFlow'
-          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+          ? 'bg-orange-600 text-white'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
         on:click={() => (currentView = "newFlow")}
       >
         New Flow
@@ -807,8 +901,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'users'
-          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+          ? 'bg-orange-600 text-white'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
         on:click={() => (currentView = "users")}
       >
         Users
@@ -816,16 +910,16 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmos'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "nmos")}
     >
       NMOS
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'topology'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => {
         currentView = "topology";
         loadNMOSRegistry();
@@ -835,16 +929,16 @@
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmosPatch'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "nmosPatch")}
     >
       NMOS Patch
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'checker'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "checker")}
     >
       Checker
@@ -852,8 +946,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'automation'
-          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+          ? 'bg-orange-600 text-white'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
         on:click={() => (currentView = "automation")}
       >
         Automation
@@ -861,16 +955,16 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'planner'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "planner")}
     >
       Planner
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'addressMap'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "addressMap")}
     >
       Address Map
@@ -878,8 +972,8 @@
     {#if isAdmin}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'logs'
-          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+          ? 'bg-orange-600 text-white'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
         on:click={() => {
           currentView = "logs";
           loadLogs();
@@ -890,8 +984,8 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'settings'
-        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
+        ? 'bg-orange-600 text-white'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
       on:click={() => (currentView = "settings")}
     >
       Settings
@@ -899,26 +993,25 @@
   </nav>
 
   {#if showBuildModal}
-    <!-- Sürüm / build popup -->
-    <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
-      <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/40 p-5 space-y-3">
+    <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
+      <div class="w-full max-w-sm rounded-lg border border-gray-800 bg-gray-900 p-6 space-y-4">
         <div class="flex items-start justify-between gap-3">
-          <div class="space-y-1">
-            <div class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
-              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]"></span>
-              <span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-900">
+          <div class="space-y-2">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-900/50 border border-green-800">
+              <span class="w-2 h-2 rounded-full bg-green-500"></span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-green-300">
                 UI Build Status
               </span>
             </div>
-            <p class="text-sm font-semibold text-black mt-1">
+            <p class="text-sm font-semibold text-white">
               You are running the latest frontend build.
             </p>
-            <p class="text-xs text-black/70">
-              Current version: <span class="font-semibold">{uiVersion}</span>
+            <p class="text-xs text-gray-400">
+              Current version: <span class="font-semibold text-gray-200">{uiVersion}</span>
             </p>
           </div>
           <button
-            class="shrink-0 rounded-full border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 w-7 h-7 flex items-center justify-center text-xs"
+            class="shrink-0 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white w-7 h-7 flex items-center justify-center text-sm border border-gray-700"
             on:click={() => (showBuildModal = false)}
             aria-label="Close"
           >
@@ -927,7 +1020,7 @@
         </div>
         <div class="flex justify-end">
           <button
-            class="px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-semibold hover:bg-black"
+            class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold transition-colors"
             on:click={() => (showBuildModal = false)}
           >
             Close
@@ -942,7 +1035,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-sm text-black">Loading...</p>
+    <p class="text-sm text-gray-300">Loading...</p>
   {:else if error}
     <p class="text-sm text-red-600">{error}</p>
   {:else}
@@ -1064,12 +1157,25 @@
         {showAddNodeModal}
         {newNodeName}
         {newNodeUrl}
+        {showConnectRDSModal}
+        registryQueryUrl={rdsQueryUrl}
+        registryDiscovering={rdsDiscovering}
+        registryNodes={rdsNodes}
+        registrySelectedIds={rdsSelectedIds}
+        registryError={rdsError}
         onReloadNodes={loadNodes}
         onOpenAddNode={openAddNodeModal}
         onCancelAddNode={cancelAddNode}
         onConfirmAddNode={addNode}
         onChangeNewNodeName={(v) => (newNodeName = v)}
         onChangeNewNodeUrl={(v) => (newNodeUrl = v)}
+        onOpenRDS={openRDSModal}
+        onCloseRDS={closeRDSModal}
+        onChangeRegistryQueryUrl={(v) => (rdsQueryUrl = v)}
+        onDiscoverRegistryNodes={discoverRegistryNodes}
+        onToggleRegistryNode={toggleRegistryNode}
+        onSelectAllRegistryNodes={selectAllRegistryNodes}
+        onAddSelectedRegistryNodes={addSelectedRegistryNodes}
         onSelectSenderNode={(id) => {
           selectedSenderNodeId = id;
           loadSenderNode(id);
