@@ -691,29 +691,33 @@
   });
 </script>
 
-<main class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+<main class="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-50">
+  <div class="max-w-6xl mx-auto px-4 py-8 space-y-5">
+  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
     <div class="space-y-1">
-      <h1 class="text-2xl font-semibold tracking-tight text-black">
-        go-NMOS <span class="ml-1 text-xs align-middle rounded-full border border-svelte/40 bg-svelte/10 px-2 py-0.5 font-medium text-black">Dashboard</span>
+      <h1 class="text-2xl font-semibold tracking-tight text-slate-50">
+        go-NMOS
+        <span class="ml-2 text-[11px] align-middle rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5 font-medium text-slate-200 uppercase tracking-[0.18em]">
+          Dashboard
+        </span>
       </h1>
-      <p class="text-xs text-black/70">
-        Signed in as <span class="font-semibold">{user?.username}</span>
-        <span class="mx-2 h-3 w-px inline-block bg-black/20 align-middle" />
-        <span class="uppercase text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-nmos-bg border border-svelte/30">
+      <p class="text-xs text-slate-400">
+        Signed in as <span class="font-semibold text-slate-100">{user?.username}</span>
+        <span class="mx-2 h-3 w-px inline-block bg-slate-600 align-middle"></span>
+        <span class="uppercase text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-100">
           {user?.role}
         </span>
       </p>
     </div>
     <div class="flex items-center gap-2 text-xs">
       <button
-        class="px-3 py-1.5 rounded-md bg-nmos-bg hover:bg-svelte/20 border border-slate-300 text-black font-medium shadow-sm transition"
+        class="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-100 font-medium shadow-sm transition"
         on:click={refreshAll}
       >
         Refresh
       </button>
       <button
-        class="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-black text-white font-semibold shadow-sm transition"
+        class="px-3 py-1.5 rounded-md bg-svelte hover:bg-orange-400 text-slate-950 font-semibold shadow-sm transition"
         on:click={onLogout}
       >
         Logout
@@ -721,19 +725,19 @@
     </div>
   </header>
 
-  <nav class="flex flex-wrap gap-2 border-b border-slate-200 pb-2 text-xs mt-3">
+  <nav class="flex flex-wrap gap-2 border-b border-slate-800 pb-3 text-xs mt-3">
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'dashboard'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft font-semibold shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-svelte/10'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft font-semibold shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "dashboard")}
     >
       Dashboard
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'flows'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "flows")}
     >
       Flows
@@ -749,8 +753,8 @@
     {#if canEdit}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'newFlow'
-          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
         on:click={() => (currentView = "newFlow")}
       >
         New Flow
@@ -759,8 +763,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'users'
-          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
         on:click={() => (currentView = "users")}
       >
         Users
@@ -768,24 +772,24 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmos'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "nmos")}
     >
       NMOS
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmosPatch'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "nmosPatch")}
     >
       NMOS Patch
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'checker'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "checker")}
     >
       Checker
@@ -793,8 +797,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'automation'
-          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
         on:click={() => (currentView = "automation")}
       >
         Automation
@@ -802,16 +806,16 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'planner'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "planner")}
     >
       Planner
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'addressMap'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "addressMap")}
     >
       Address Map
@@ -819,8 +823,8 @@
     {#if isAdmin}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'logs'
-          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+          ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
         on:click={() => {
           currentView = "logs";
           loadLogs();
@@ -831,8 +835,8 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'settings'
-        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
+        ? 'border-svelte bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-900/40'}"
       on:click={() => (currentView = "settings")}
     >
       Settings
