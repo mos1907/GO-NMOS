@@ -40,6 +40,19 @@ type Repository interface {
 	ExportBuckets(ctx context.Context) ([]models.AddressBucket, error)
 	ImportBuckets(ctx context.Context, buckets []models.AddressBucket) (int, error)
 
+	// NMOS registry (IS-04 oriented) — designed to scale to full controller
+	ListNMOSNodes(ctx context.Context) ([]models.NMOSNode, error)
+	ListNMOSDevices(ctx context.Context, nodeID string) ([]models.NMOSDevice, error)
+	ListNMOSFlows(ctx context.Context) ([]models.NMOSFlow, error)
+	ListNMOSSenders(ctx context.Context, deviceID string) ([]models.NMOSSender, error)
+	ListNMOSReceivers(ctx context.Context, deviceID string) ([]models.NMOSReceiver, error)
+
+	UpsertNMOSNode(ctx context.Context, node models.NMOSNode) error
+	UpsertNMOSDevice(ctx context.Context, dev models.NMOSDevice) error
+	UpsertNMOSFlow(ctx context.Context, flow models.NMOSFlow) error
+	UpsertNMOSSender(ctx context.Context, sender models.NMOSSender) error
+	UpsertNMOSReceiver(ctx context.Context, rec models.NMOSReceiver) error
+
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error
 	HealthCheck(ctx context.Context) error

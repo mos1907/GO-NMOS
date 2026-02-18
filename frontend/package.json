@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "doctor": "node ./scripts/doctor.mjs"
   },
   "dependencies": {
     "mqtt": "^5.10.1"

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go-nmos/backend/internal/models"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -52,6 +55,7 @@ func (h *Handler) DiscoverNMOS(w http.ResponseWriter, r *http.Request) {
 	sendersData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/senders", baseURL, version))
 	receiversData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/receivers", baseURL, version))
 	flowsData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/flows", baseURL, version))
+	devicesData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/devices", baseURL, version))
 
 	flowFormatByID := map[string]string{}
 	for _, item := range flowsData {
@@ -84,6 +88,9 @@ func (h *Handler) DiscoverNMOS(w http.ResponseWriter, r *http.Request) {
 			Format:      asString(rec["format"]),
 		})
 	}
+
+	// Best-effort sync into internal NMOS registry (does not affect response)
+	go h.syncNMOSRegistry(baseURL, version, devicesData, flowsData, sendersData, receiversData)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"base_url":     baseURL,
@@ -147,6 +154,108 @@ func (h *Handler) CheckFlowNMOS(w http.ResponseWriter, r *http.Request) {
 		"matched_count": len(matches),
 		"is_match":      len(matches) > 0,
 	})
+}
+
+// syncNMOSRegistry ingests the discovered NMOS resources into the internal registry tables.
+// It is intentionally best-effort and runs in a separate goroutine from DiscoverNMOS.
+func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsData, sendersData, receiversData []map[string]any) {
+	ctx := context.Background()
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return
+	}
+	hostname := parsed.Hostname()
+
+	// Build nodes from device.node_id references (we may not have explicit /self nodes here)
+	nodesByID := map[string]models.NMOSNode{}
+	for _, d := range devicesData {
+		nodeID := asString(d["node_id"])
+		if nodeID == "" {
+			continue
+		}
+		if _, ok := nodesByID[nodeID]; !ok {
+			nodesByID[nodeID] = models.NMOSNode{
+				ID:         nodeID,
+				Label:      nodeID,
+				Hostname:   hostname,
+				APIVersion: version,
+			}
+		}
+	}
+
+	// Upsert nodes
+	for _, node := range nodesByID {
+		_ = h.repo.UpsertNMOSNode(ctx, node)
+	}
+
+	// Upsert devices
+	for _, d := range devicesData {
+		devID := asString(d["id"])
+		if devID == "" {
+			continue
+		}
+		nodeID := asString(d["node_id"])
+		dev := models.NMOSDevice{
+			ID:          devID,
+			NodeID:      nodeID,
+			Label:       fallback(asString(d["label"]), devID),
+			Description: asString(d["description"]),
+			Type:        asString(d["type"]),
+		}
+		_ = h.repo.UpsertNMOSDevice(ctx, dev)
+	}
+
+	// Upsert flows
+	for _, f := range flowsData {
+		flowID := asString(f["id"])
+		if flowID == "" {
+			continue
+		}
+		flow := models.NMOSFlow{
+			ID:          flowID,
+			Label:       fallback(asString(f["label"]), flowID),
+			Description: asString(f["description"]),
+			Format:      asString(f["format"]),
+			SourceID:    asString(f["source_id"]),
+		}
+		_ = h.repo.UpsertNMOSFlow(ctx, flow)
+	}
+
+	// Upsert senders
+	for _, s := range sendersData {
+		senderID := asString(s["id"])
+		if senderID == "" {
+			continue
+		}
+		sender := models.NMOSSender{
+			ID:           senderID,
+			Label:        fallback(asString(s["label"]), senderID),
+			Description:  asString(s["description"]),
+			FlowID:       asString(s["flow_id"]),
+			Transport:    asString(s["transport"]),
+			ManifestHREF: asString(s["manifest_href"]),
+			DeviceID:     asString(s["device_id"]),
+		}
+		_ = h.repo.UpsertNMOSSender(ctx, sender)
+	}
+
+	// Upsert receivers
+	for _, rsrc := range receiversData {
+		recID := asString(rsrc["id"])
+		if recID == "" {
+			continue
+		}
+		rec := models.NMOSReceiver{
+			ID:          recID,
+			Label:       fallback(asString(rsrc["label"]), recID),
+			Description: asString(rsrc["description"]),
+			Format:      asString(rsrc["format"]),
+			Transport:   asString(rsrc["transport"]),
+			DeviceID:    asString(rsrc["device_id"]),
+		}
+		_ = h.repo.UpsertNMOSReceiver(ctx, rec)
+	}
 }
 
 type nmosApplyRequest struct {

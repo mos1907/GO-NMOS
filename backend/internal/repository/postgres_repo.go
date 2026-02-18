@@ -533,6 +533,239 @@ func (r *PostgresRepository) ImportBuckets(ctx context.Context, buckets []models
 	return imported, nil
 }
 
+// NMOS registry (IS-04) implementation
+
+func (r *PostgresRepository) ListNMOSNodes(ctx context.Context) ([]models.NMOSNode, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, label, description, hostname, api_version,
+		       COALESCE(tags::text, '{}'), COALESCE(meta::text, '{}')
+		FROM nmos_nodes
+		ORDER BY label ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.NMOSNode
+	for rows.Next() {
+		var n models.NMOSNode
+		if err := rows.Scan(&n.ID, &n.Label, &n.Description, &n.Hostname, &n.APIVersion, &n.Tags, &n.Meta); err != nil {
+			return nil, err
+		}
+		items = append(items, n)
+	}
+	return items, rows.Err()
+}
+
+func (r *PostgresRepository) ListNMOSDevices(ctx context.Context, nodeID string) ([]models.NMOSDevice, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, label, description, node_id, type,
+		       COALESCE(tags::text, '{}'), COALESCE(meta::text, '{}')
+		FROM nmos_devices
+		WHERE ($1 = '' OR node_id = $1)
+		ORDER BY label ASC, id ASC
+	`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.NMOSDevice
+	for rows.Next() {
+		var d models.NMOSDevice
+		if err := rows.Scan(&d.ID, &d.Label, &d.Description, &d.NodeID, &d.Type, &d.Tags, &d.Meta); err != nil {
+			return nil, err
+		}
+		items = append(items, d)
+	}
+	return items, rows.Err()
+}
+
+func (r *PostgresRepository) ListNMOSFlows(ctx context.Context) ([]models.NMOSFlow, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, label, description, format, source_id,
+		       COALESCE(tags::text, '{}'), COALESCE(meta::text, '{}')
+		FROM nmos_flows
+		ORDER BY label ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.NMOSFlow
+	for rows.Next() {
+		var f models.NMOSFlow
+		if err := rows.Scan(&f.ID, &f.Label, &f.Description, &f.Format, &f.SourceID, &f.Tags, &f.Meta); err != nil {
+			return nil, err
+		}
+		items = append(items, f)
+	}
+	return items, rows.Err()
+}
+
+func (r *PostgresRepository) ListNMOSSenders(ctx context.Context, deviceID string) ([]models.NMOSSender, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, label, description, flow_id, transport, manifest_href, device_id,
+		       COALESCE(tags::text, '{}'), COALESCE(meta::text, '{}')
+		FROM nmos_senders
+		WHERE ($1 = '' OR device_id = $1)
+		ORDER BY label ASC, id ASC
+	`, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.NMOSSender
+	for rows.Next() {
+		var s models.NMOSSender
+		if err := rows.Scan(&s.ID, &s.Label, &s.Description, &s.FlowID, &s.Transport, &s.ManifestHREF, &s.DeviceID, &s.Tags, &s.Meta); err != nil {
+			return nil, err
+		}
+		items = append(items, s)
+	}
+	return items, rows.Err()
+}
+
+func (r *PostgresRepository) ListNMOSReceivers(ctx context.Context, deviceID string) ([]models.NMOSReceiver, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, label, description, format, transport, device_id,
+		       COALESCE(tags::text, '{}'), COALESCE(meta::text, '{}')
+		FROM nmos_receivers
+		WHERE ($1 = '' OR device_id = $1)
+		ORDER BY label ASC, id ASC
+	`, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []models.NMOSReceiver
+	for rows.Next() {
+		var rec models.NMOSReceiver
+		if err := rows.Scan(&rec.ID, &rec.Label, &rec.Description, &rec.Format, &rec.Transport, &rec.DeviceID, &rec.Tags, &rec.Meta); err != nil {
+			return nil, err
+		}
+		items = append(items, rec)
+	}
+	return items, rows.Err()
+}
+
+func (r *PostgresRepository) UpsertNMOSNode(ctx context.Context, node models.NMOSNode) error {
+	if len(node.Tags) == 0 {
+		node.Tags = json.RawMessage(`{}`)
+	}
+	if len(node.Meta) == 0 {
+		node.Meta = json.RawMessage(`{}`)
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO nmos_nodes(id, label, description, hostname, api_version, tags, meta)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			label = EXCLUDED.label,
+			description = EXCLUDED.description,
+			hostname = EXCLUDED.hostname,
+			api_version = EXCLUDED.api_version,
+			tags = EXCLUDED.tags,
+			meta = EXCLUDED.meta,
+			updated_at = NOW()
+	`, node.ID, node.Label, node.Description, node.Hostname, node.APIVersion, string(node.Tags), string(node.Meta))
+	return err
+}
+
+func (r *PostgresRepository) UpsertNMOSDevice(ctx context.Context, dev models.NMOSDevice) error {
+	if len(dev.Tags) == 0 {
+		dev.Tags = json.RawMessage(`{}`)
+	}
+	if len(dev.Meta) == 0 {
+		dev.Meta = json.RawMessage(`{}`)
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO nmos_devices(id, node_id, label, description, type, tags, meta)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			node_id = EXCLUDED.node_id,
+			label = EXCLUDED.label,
+			description = EXCLUDED.description,
+			type = EXCLUDED.type,
+			tags = EXCLUDED.tags,
+			meta = EXCLUDED.meta,
+			updated_at = NOW()
+	`, dev.ID, dev.NodeID, dev.Label, dev.Description, dev.Type, string(dev.Tags), string(dev.Meta))
+	return err
+}
+
+func (r *PostgresRepository) UpsertNMOSFlow(ctx context.Context, flow models.NMOSFlow) error {
+	if len(flow.Tags) == 0 {
+		flow.Tags = json.RawMessage(`{}`)
+	}
+	if len(flow.Meta) == 0 {
+		flow.Meta = json.RawMessage(`{}`)
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO nmos_flows(id, label, description, format, source_id, tags, meta)
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			label = EXCLUDED.label,
+			description = EXCLUDED.description,
+			format = EXCLUDED.format,
+			source_id = EXCLUDED.source_id,
+			tags = EXCLUDED.tags,
+			meta = EXCLUDED.meta,
+			updated_at = NOW()
+	`, flow.ID, flow.Label, flow.Description, flow.Format, flow.SourceID, string(flow.Tags), string(flow.Meta))
+	return err
+}
+
+func (r *PostgresRepository) UpsertNMOSSender(ctx context.Context, sender models.NMOSSender) error {
+	if len(sender.Tags) == 0 {
+		sender.Tags = json.RawMessage(`{}`)
+	}
+	if len(sender.Meta) == 0 {
+		sender.Meta = json.RawMessage(`{}`)
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO nmos_senders(id, device_id, flow_id, label, description, transport, manifest_href, tags, meta)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			device_id = EXCLUDED.device_id,
+			flow_id = EXCLUDED.flow_id,
+			label = EXCLUDED.label,
+			description = EXCLUDED.description,
+			transport = EXCLUDED.transport,
+			manifest_href = EXCLUDED.manifest_href,
+			tags = EXCLUDED.tags,
+			meta = EXCLUDED.meta,
+			updated_at = NOW()
+	`, sender.ID, sender.DeviceID, sender.FlowID, sender.Label, sender.Description, sender.Transport, sender.ManifestHREF, string(sender.Tags), string(sender.Meta))
+	return err
+}
+
+func (r *PostgresRepository) UpsertNMOSReceiver(ctx context.Context, rec models.NMOSReceiver) error {
+	if len(rec.Tags) == 0 {
+		rec.Tags = json.RawMessage(`{}`)
+	}
+	if len(rec.Meta) == 0 {
+		rec.Meta = json.RawMessage(`{}`)
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO nmos_receivers(id, device_id, label, description, format, transport, tags, meta)
+		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			device_id = EXCLUDED.device_id,
+			label = EXCLUDED.label,
+			description = EXCLUDED.description,
+			format = EXCLUDED.format,
+			transport = EXCLUDED.transport,
+			tags = EXCLUDED.tags,
+			meta = EXCLUDED.meta,
+			updated_at = NOW()
+	`, rec.ID, rec.DeviceID, rec.Label, rec.Description, rec.Format, rec.Transport, string(rec.Tags), string(rec.Meta))
+	return err
+}
+
 func (r *PostgresRepository) CreateFlow(ctx context.Context, flow models.Flow) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `

@@ -82,6 +82,13 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/check", h.CheckFlowNMOS)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/apply", h.ApplyFlowNMOS)
 
+		// Internal NMOS registry (IS-04 style) read-only APIs
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/nodes", h.ListNMOSNodesHandler)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/devices", h.ListNMOSDevicesHandler)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/flows", h.ListNMOSFlowsHandler)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/senders", h.ListNMOSSendersHandler)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/receivers", h.ListNMOSReceiversHandler)
+
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/collisions", h.CheckerCollisions)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/latest", h.CheckerLatest)
 

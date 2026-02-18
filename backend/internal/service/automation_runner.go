@@ -7,14 +7,22 @@ import (
 	"strconv"
 	"time"
 
-	"go-nmos/backend/internal/repository"
+	"go-nmos/backend/internal/models"
 )
 
 type AutomationRunner struct {
-	repo repository.Repository
+	repo automationRepo
 }
 
-func NewAutomationRunner(repo repository.Repository) *AutomationRunner {
+// automationRepo is a narrow dependency surface for testability.
+type automationRepo interface {
+	ListAutomationJobs(ctx context.Context) ([]models.AutomationJob, error)
+	DetectCollisions(ctx context.Context) ([]models.CollisionGroup, error)
+	SaveCheckerResult(ctx context.Context, kind string, result []byte) error
+	UpdateAutomationJobRun(ctx context.Context, jobID, status string, result []byte) error
+}
+
+func NewAutomationRunner(repo automationRepo) *AutomationRunner {
 	return &AutomationRunner{repo: repo}
 }
 
