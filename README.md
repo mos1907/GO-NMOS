@@ -29,7 +29,7 @@ go-NMOS/
 │   │   │   └── handlers/           # HTTP request handlers
 │   │   │       ├── auth.go         # Authentication endpoints
 │   │   │       ├── flows.go        # Flow CRUD operations
-│   │   │       ├── nmos.go         # NMOS discovery & apply
+│   │   │       ├── nmos.go         # NMOS discovery, apply & port scanning
 │   │   │       ├── nmos_registry.go # NMOS Registry (RDS) discovery
 │   │   │       ├── checker.go     # Collision detection
 │   │   │       ├── automation.go   # Automation jobs
@@ -54,7 +54,8 @@ go-NMOS/
 │   │   ├── 0002_seed_admin.sql
 │   │   ├── 0003_checker_automation.sql
 │   │   ├── 0004_address_buckets.sql
-│   │   └── 0005_nmos_registry.sql
+│   │   ├── 0005_nmos_registry.sql
+│   │   └── 0006_add_flow_alias_user_fields.sql
 │   ├── Dockerfile
 │   ├── go.mod
 │   └── env.example                  # Environment variables template
@@ -68,7 +69,7 @@ go-NMOS/
 │   │   │   ├── DashboardHomeView.svelte    # Dashboard overview
 │   │   │   ├── FlowsView.svelte            # Flow list & management
 │   │   │   ├── SearchView.svelte           # Flow search
-│   │   │   ├── NewFlowView.svelte          # Create new flow
+│   │   │   ├── NewFlowView.svelte          # Create new flow (modal)
 │   │   │   ├── NMOSView.svelte             # NMOS discovery & apply
 │   │   │   ├── NMOSPatchView.svelte        # NMOS Patch Panel (IS-04/IS-05)
 │   │   │   ├── TopologyView.svelte         # NMOS Topology view
@@ -76,12 +77,16 @@ go-NMOS/
 │   │   │   ├── AutomationJobsView.svelte   # Automation jobs
 │   │   │   ├── PlannerView.svelte         # Address planner
 │   │   │   ├── AddressMapView.svelte      # Address map
+│   │   │   ├── PortExplorerView.svelte    # Port scanning & discovery
 │   │   │   ├── UsersView.svelte           # User management
 │   │   │   ├── SettingsView.svelte        # Settings
-│   │   │   └── LogsView.svelte            # Log viewer
+│   │   │   ├── LogsView.svelte            # Log viewer
+│   │   │   ├── EmptyState.svelte          # Empty state component
+│   │   │   └── SkeletonLoader.svelte      # Loading skeleton component
 │   │   ├── lib/
 │   │   │   ├── api.js              # API client utilities
-│   │   │   └── mqtt.js            # MQTT WebSocket client
+│   │   │   ├── mqtt.js            # MQTT WebSocket client
+│   │   │   └── icons.js           # Icon library (SVG icons)
 │   │   ├── stores/
 │   │   │   └── auth.js            # Authentication store
 │   │   ├── App.svelte
@@ -262,7 +267,7 @@ The **NMOS** tab provides a simpler discovery interface:
 
 - **View Flows**: Navigate to **Flows** tab to see all flows
 - **Search**: Use **Search** tab for quick flow lookup by name, IP, or flow ID
-- **Create Flow**: Use **New Flow** tab (requires edit permissions)
+- **Create Flow**: Click **"Add Flow"** button in Flows view (requires edit permissions) - opens a modal dialog
 - **Lock/Unlock**: Click lock/unlock button in Flows view to prevent modifications
 - **Export/Import**: Use Settings tab to export flows as JSON or import from file
 
@@ -279,6 +284,22 @@ The **NMOS** tab provides a simpler discovery interface:
 2. View configured automation jobs
 3. Enable/disable jobs as needed
 4. Jobs run automatically based on their schedule
+
+### Port Explorer
+
+The **Port Explorer** (admin only) allows you to scan IP addresses and port ranges to discover NMOS nodes:
+
+1. Navigate to **Port Explorer** tab
+2. Enter the **Host IP** address to scan
+3. Specify ports:
+   - **Port List**: Comma-separated ports (e.g., `8080,8081,8082`)
+   - **Port Range**: Range format (e.g., `8080-8090`)
+4. Adjust **Concurrency** (default: 10) and **Timeout** (default: 3 seconds)
+5. Click **"Scan Ports"** to start scanning
+6. Review results showing discovered NMOS API endpoints
+7. Use **"Copy"** buttons to copy endpoint URLs to clipboard
+
+**Note**: Scanning local networks (192.168.x.x, 10.x.x.x, 172.16-31.x.x) will show a warning. Be cautious when scanning external networks.
 
 ## MQTT Realtime Updates
 
