@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"net/http"
 	"os"
@@ -62,27 +63,65 @@ func main() {
 	runner := service.NewAutomationRunner(repo)
 	go runner.Start(runnerCtx)
 
-	srv := &http.Server{
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// HTTP server (always started)
+	httpSrv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	go func() {
-		log.Printf("go-NMOS backend started on :%s", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+		log.Printf("go-NMOS backend HTTP server started on :%s", cfg.Port)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// HTTPS server (if enabled)
+	var httpsSrv *http.Server
+	if cfg.HTTPSEnabled {
+		// Load certificate
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			log.Fatalf("failed to load certificate: %v (check CERT_FILE and KEY_FILE)", err)
+		}
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+
+		httpsSrv = &http.Server{
+			Addr:              ":" + cfg.HTTPSPort,
+			Handler:           r,
+			TLSConfig:         tlsConfig,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+
+		go func() {
+			log.Printf("go-NMOS backend HTTPS server started on :%s", cfg.HTTPSPort)
+			if err := httpsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("HTTPS server error: %v", err)
+			}
+		}()
+	}
+
 	<-quit
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("graceful shutdown failed: %v", err)
+
+	log.Println("shutting down servers...")
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown failed: %v", err)
+	}
+	if httpsSrv != nil {
+		if err := httpsSrv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTPS server shutdown failed: %v", err)
+		}
 	}
 }
 

@@ -1,0 +1,25 @@
+-- Add alias and user_field columns to flows table
+-- These fields allow flows to function as a text message sharing hub
+-- keyed by multicast addresses or flow IDs
+
+ALTER TABLE flows
+ADD COLUMN IF NOT EXISTS alias_1 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_2 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_3 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_4 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_5 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_6 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_7 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS alias_8 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_1 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_2 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_3 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_4 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_5 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_6 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_7 TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS user_field_8 TEXT NOT NULL DEFAULT '';
+
+-- Add indexes for common search patterns
+CREATE INDEX IF NOT EXISTS idx_flows_alias_1 ON flows(alias_1) WHERE alias_1 != '';
+CREATE INDEX IF NOT EXISTS idx_flows_user_field_1 ON flows(user_field_1) WHERE user_field_1 != '';

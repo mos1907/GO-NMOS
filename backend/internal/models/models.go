@@ -26,6 +26,24 @@ type Flow struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	LastSeen       *time.Time `json:"last_seen,omitempty"`
 	TransportProto string     `json:"transport_protocol"`
+	// Alias fields for text message sharing hub functionality
+	Alias1 string `json:"alias_1,omitempty"`
+	Alias2 string `json:"alias_2,omitempty"`
+	Alias3 string `json:"alias_3,omitempty"`
+	Alias4 string `json:"alias_4,omitempty"`
+	Alias5 string `json:"alias_5,omitempty"`
+	Alias6 string `json:"alias_6,omitempty"`
+	Alias7 string `json:"alias_7,omitempty"`
+	Alias8 string `json:"alias_8,omitempty"`
+	// User-defined fields for custom metadata
+	UserField1 string `json:"user_field_1,omitempty"`
+	UserField2 string `json:"user_field_2,omitempty"`
+	UserField3 string `json:"user_field_3,omitempty"`
+	UserField4 string `json:"user_field_4,omitempty"`
+	UserField5 string `json:"user_field_5,omitempty"`
+	UserField6 string `json:"user_field_6,omitempty"`
+	UserField7 string `json:"user_field_7,omitempty"`
+	UserField8 string `json:"user_field_8,omitempty"`
 }
 
 type FlowSummary struct {

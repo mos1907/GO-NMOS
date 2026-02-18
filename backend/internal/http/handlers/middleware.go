@@ -28,6 +28,17 @@ var (
 
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If auth is disabled, create a default admin user context
+		if h.cfg.DisableAuth {
+			claims := &AuthClaims{
+				Username: "admin",
+				Role:     "admin",
+			}
+			ctx := context.WithValue(r.Context(), userContextKey, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		tokenString := parseBearerToken(r.Header.Get("Authorization"))
 		if tokenString == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing bearer token"})

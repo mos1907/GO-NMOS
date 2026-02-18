@@ -16,6 +16,9 @@
   import PlannerView from "../components/PlannerView.svelte";
   import AddressMapView from "../components/AddressMapView.svelte";
   import LogsView from "../components/LogsView.svelte";
+  import PortExplorerView from "../components/PortExplorerView.svelte";
+  import SkeletonLoader from "../components/SkeletonLoader.svelte";
+  import EmptyState from "../components/EmptyState.svelte";
 
   export let token;
   export let user;
@@ -865,25 +868,25 @@
 
   <nav class="flex flex-wrap gap-2 pb-4 border-b border-gray-800">
     <button
-      class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {currentView === 'dashboard'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 {currentView === 'dashboard'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "dashboard")}
     >
       Dashboard
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'flows'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'flows'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "flows")}
     >
       Flows
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'search'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'search'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "search")}
     >
       Search
@@ -909,17 +912,17 @@
       </button>
     {/if}
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'nmos'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmos'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "nmos")}
     >
       NMOS
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'topology'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'topology'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => {
         currentView = "topology";
         loadNMOSRegistry();
@@ -928,52 +931,60 @@
       Topology
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'nmosPatch'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmosPatch'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "nmosPatch")}
     >
       NMOS Patch
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'checker'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'checker'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "checker")}
     >
       Checker
     </button>
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
-        class="px-3 py-1.5 rounded-md border {currentView === 'automation'
-          ? 'bg-orange-600 text-white'
-          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'automation'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
         on:click={() => (currentView = "automation")}
       >
         Automation
       </button>
     {/if}
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'planner'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'planner'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "planner")}
     >
       Planner
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'addressMap'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'addressMap'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "addressMap")}
     >
       Address Map
     </button>
     {#if isAdmin}
       <button
-        class="px-3 py-1.5 rounded-md border {currentView === 'logs'
-          ? 'bg-orange-600 text-white'
-          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'portExplorer'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+        on:click={() => (currentView = "portExplorer")}
+      >
+        Port Explorer
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'logs'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
         on:click={() => {
           currentView = "logs";
           loadLogs();
@@ -983,9 +994,9 @@
       </button>
     {/if}
     <button
-      class="px-3 py-1.5 rounded-md border {currentView === 'settings'
-        ? 'bg-orange-600 text-white'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'settings'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
       on:click={() => (currentView = "settings")}
     >
       Settings
@@ -1035,9 +1046,31 @@
   {/if}
 
   {#if loading}
-    <p class="text-sm text-gray-300">Loading...</p>
+    <div class="space-y-6">
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4">
+        {#each Array(5) as _}
+          <div class="rounded-xl border border-gray-800 bg-gray-900 px-3 py-3 animate-pulse">
+            <div class="h-3 bg-gray-800 rounded w-1/2 mb-2"></div>
+            <div class="h-8 bg-gray-800 rounded w-3/4"></div>
+          </div>
+        {/each}
+      </div>
+      <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-6">
+        <SkeletonLoader lines={8} showHeader={true} />
+      </div>
+    </div>
   {:else if error}
-    <p class="text-sm text-red-600">{error}</p>
+    <div class="bg-red-950/50 border border-red-700 rounded-lg p-4">
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        </svg>
+        <div class="flex-1">
+          <h3 class="text-red-300 font-semibold mb-1">Error</h3>
+          <p class="text-red-200/80 text-sm">{error}</p>
+        </div>
+      </div>
+    </div>
   {:else}
     {#if currentView === "dashboard"}
       <DashboardHomeView {summary} {flows} {flowTotal} />
@@ -1226,6 +1259,10 @@
 
     {#if currentView === "addressMap"}
       <AddressMapView {addressMap} />
+    {/if}
+
+    {#if currentView === "portExplorer" && isAdmin}
+      <PortExplorerView />
     {/if}
 
     {#if currentView === "logs" && isAdmin}

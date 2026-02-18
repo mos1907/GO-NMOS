@@ -31,8 +31,10 @@ services:
       - mqtt
     volumes:
       - ./logs:/tmp/go-nmos-logs
+      - ./certs:/certs:ro
     ports:
       - "9090:8080"
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
 
   frontend:
     build:

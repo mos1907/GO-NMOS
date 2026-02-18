@@ -70,7 +70,9 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user models.User) e
 func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error) {
 	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
 	query := fmt.Sprintf(`
-		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol
+		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows
 		ORDER BY %s %s
 		LIMIT $1 OFFSET $2
@@ -87,6 +89,8 @@ func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, s
 		if err := rows.Scan(
 			&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 			&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+			&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
+			&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 		); err != nil {
 			return nil, err
 		}
@@ -98,14 +102,20 @@ func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, s
 func (r *PostgresRepository) SearchFlows(ctx context.Context, query string, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error) {
 	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
 	sql := fmt.Sprintf(`
-		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol
+		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows
 		WHERE
 			display_name ILIKE '%%' || $1 || '%%' OR
 			flow_id::text ILIKE '%%' || $1 || '%%' OR
 			multicast_ip ILIKE '%%' || $1 || '%%' OR
 			source_ip ILIKE '%%' || $1 || '%%' OR
-			note ILIKE '%%' || $1 || '%%'
+			note ILIKE '%%' || $1 || '%%' OR
+			alias_1 ILIKE '%%' || $1 || '%%' OR alias_2 ILIKE '%%' || $1 || '%%' OR alias_3 ILIKE '%%' || $1 || '%%' OR alias_4 ILIKE '%%' || $1 || '%%' OR
+			alias_5 ILIKE '%%' || $1 || '%%' OR alias_6 ILIKE '%%' || $1 || '%%' OR alias_7 ILIKE '%%' || $1 || '%%' OR alias_8 ILIKE '%%' || $1 || '%%' OR
+			user_field_1 ILIKE '%%' || $1 || '%%' OR user_field_2 ILIKE '%%' || $1 || '%%' OR user_field_3 ILIKE '%%' || $1 || '%%' OR user_field_4 ILIKE '%%' || $1 || '%%' OR
+			user_field_5 ILIKE '%%' || $1 || '%%' OR user_field_6 ILIKE '%%' || $1 || '%%' OR user_field_7 ILIKE '%%' || $1 || '%%' OR user_field_8 ILIKE '%%' || $1 || '%%'
 		ORDER BY %s %s
 		LIMIT $2 OFFSET $3
 	`, sortBy, sortOrder)
@@ -121,6 +131,8 @@ func (r *PostgresRepository) SearchFlows(ctx context.Context, query string, limi
 		if err := rows.Scan(
 			&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 			&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+			&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
+			&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 		); err != nil {
 			return nil, err
 		}
@@ -159,7 +171,11 @@ func (r *PostgresRepository) CountSearchFlows(ctx context.Context, query string)
 			flow_id::text ILIKE '%' || $1 || '%' OR
 			multicast_ip ILIKE '%' || $1 || '%' OR
 			source_ip ILIKE '%' || $1 || '%' OR
-			note ILIKE '%' || $1 || '%'
+			note ILIKE '%' || $1 || '%' OR
+			alias_1 ILIKE '%' || $1 || '%' OR alias_2 ILIKE '%' || $1 || '%' OR alias_3 ILIKE '%' || $1 || '%' OR alias_4 ILIKE '%' || $1 || '%' OR
+			alias_5 ILIKE '%' || $1 || '%' OR alias_6 ILIKE '%' || $1 || '%' OR alias_7 ILIKE '%' || $1 || '%' OR alias_8 ILIKE '%' || $1 || '%' OR
+			user_field_1 ILIKE '%' || $1 || '%' OR user_field_2 ILIKE '%' || $1 || '%' OR user_field_3 ILIKE '%' || $1 || '%' OR user_field_4 ILIKE '%' || $1 || '%' OR
+			user_field_5 ILIKE '%' || $1 || '%' OR user_field_6 ILIKE '%' || $1 || '%' OR user_field_7 ILIKE '%' || $1 || '%' OR user_field_8 ILIKE '%' || $1 || '%'
 	`, query).Scan(&total)
 	return total, err
 }
@@ -194,8 +210,10 @@ func (r *PostgresRepository) ImportFlows(ctx context.Context, flows []models.Flo
 		}
 
 		_, err := tx.Exec(ctx, `
-			INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol,
+				alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+				user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
 			ON CONFLICT (flow_id) DO UPDATE SET
 				display_name = EXCLUDED.display_name,
 				multicast_ip = EXCLUDED.multicast_ip,
@@ -206,8 +224,14 @@ func (r *PostgresRepository) ImportFlows(ctx context.Context, flows []models.Flo
 				locked = EXCLUDED.locked,
 				note = EXCLUDED.note,
 				transport_protocol = EXCLUDED.transport_protocol,
+				alias_1 = EXCLUDED.alias_1, alias_2 = EXCLUDED.alias_2, alias_3 = EXCLUDED.alias_3, alias_4 = EXCLUDED.alias_4,
+				alias_5 = EXCLUDED.alias_5, alias_6 = EXCLUDED.alias_6, alias_7 = EXCLUDED.alias_7, alias_8 = EXCLUDED.alias_8,
+				user_field_1 = EXCLUDED.user_field_1, user_field_2 = EXCLUDED.user_field_2, user_field_3 = EXCLUDED.user_field_3, user_field_4 = EXCLUDED.user_field_4,
+				user_field_5 = EXCLUDED.user_field_5, user_field_6 = EXCLUDED.user_field_6, user_field_7 = EXCLUDED.user_field_7, user_field_8 = EXCLUDED.user_field_8,
 				updated_at = NOW()
-		`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto)
+		`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto,
+			flow.Alias1, flow.Alias2, flow.Alias3, flow.Alias4, flow.Alias5, flow.Alias6, flow.Alias7, flow.Alias8,
+			flow.UserField1, flow.UserField2, flow.UserField3, flow.UserField4, flow.UserField5, flow.UserField6, flow.UserField7, flow.UserField8)
 		if err != nil {
 			return imported, err
 		}
@@ -769,21 +793,29 @@ func (r *PostgresRepository) UpsertNMOSReceiver(ctx context.Context, rec models.
 func (r *PostgresRepository) CreateFlow(ctx context.Context, flow models.Flow) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol,
+			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
 		RETURNING id
-	`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto).Scan(&id)
+	`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto,
+		flow.Alias1, flow.Alias2, flow.Alias3, flow.Alias4, flow.Alias5, flow.Alias6, flow.Alias7, flow.Alias8,
+		flow.UserField1, flow.UserField2, flow.UserField3, flow.UserField4, flow.UserField5, flow.UserField6, flow.UserField7, flow.UserField8).Scan(&id)
 	return id, err
 }
 
 func (r *PostgresRepository) GetFlowByID(ctx context.Context, id int64) (*models.Flow, error) {
 	var f models.Flow
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol
+		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows WHERE id = $1
 	`, id).Scan(
 		&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 		&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+		&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
+		&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 	)
 	if err != nil {
 		return nil, err
@@ -802,6 +834,22 @@ func (r *PostgresRepository) PatchFlow(ctx context.Context, id int64, updates ma
 		"locked":             true,
 		"note":               true,
 		"transport_protocol": true,
+		"alias_1":            true,
+		"alias_2":            true,
+		"alias_3":            true,
+		"alias_4":            true,
+		"alias_5":            true,
+		"alias_6":            true,
+		"alias_7":            true,
+		"alias_8":            true,
+		"user_field_1":       true,
+		"user_field_2":       true,
+		"user_field_3":       true,
+		"user_field_4":       true,
+		"user_field_5":       true,
+		"user_field_6":       true,
+		"user_field_7":       true,
+		"user_field_8":       true,
 	}
 
 	setClauses := []string{}

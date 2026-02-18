@@ -24,6 +24,22 @@ type createFlowRequest struct {
 	Locked            bool   `json:"locked"`
 	Note              string `json:"note"`
 	TransportProtocol string `json:"transport_protocol"`
+	Alias1            string `json:"alias_1,omitempty"`
+	Alias2            string `json:"alias_2,omitempty"`
+	Alias3            string `json:"alias_3,omitempty"`
+	Alias4            string `json:"alias_4,omitempty"`
+	Alias5            string `json:"alias_5,omitempty"`
+	Alias6            string `json:"alias_6,omitempty"`
+	Alias7            string `json:"alias_7,omitempty"`
+	Alias8            string `json:"alias_8,omitempty"`
+	UserField1        string `json:"user_field_1,omitempty"`
+	UserField2        string `json:"user_field_2,omitempty"`
+	UserField3        string `json:"user_field_3,omitempty"`
+	UserField4        string `json:"user_field_4,omitempty"`
+	UserField5        string `json:"user_field_5,omitempty"`
+	UserField6        string `json:"user_field_6,omitempty"`
+	UserField7        string `json:"user_field_7,omitempty"`
+	UserField8        string `json:"user_field_8,omitempty"`
 }
 
 func (h *Handler) ListFlows(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +109,22 @@ func (h *Handler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 		Locked:         req.Locked,
 		Note:           req.Note,
 		TransportProto: req.TransportProtocol,
+		Alias1:         req.Alias1,
+		Alias2:         req.Alias2,
+		Alias3:         req.Alias3,
+		Alias4:         req.Alias4,
+		Alias5:         req.Alias5,
+		Alias6:         req.Alias6,
+		Alias7:         req.Alias7,
+		Alias8:         req.Alias8,
+		UserField1:     req.UserField1,
+		UserField2:     req.UserField2,
+		UserField3:     req.UserField3,
+		UserField4:     req.UserField4,
+		UserField5:     req.UserField5,
+		UserField6:     req.UserField6,
+		UserField7:     req.UserField7,
+		UserField8:     req.UserField8,
 	}
 
 	id, err := h.repo.CreateFlow(r.Context(), flow)
@@ -260,6 +292,40 @@ func (h *Handler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// HardDeleteFlow permanently deletes a flow (admin only).
+// This bypasses any soft-delete mechanisms if they exist.
+func (h *Handler) HardDeleteFlow(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
+		return
+	}
+
+	// Check if hard delete is enabled
+	hardDeleteEnabled, _ := h.repo.GetSetting(r.Context(), "hard_delete_enabled")
+	if hardDeleteEnabled != "true" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "hard delete is disabled"})
+		return
+	}
+
+	// Get flow before deletion for MQTT event
+	flow, _ := h.repo.GetFlowByID(r.Context(), id)
+
+	// Hard delete: direct database deletion
+	if err := h.repo.DeleteFlow(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "hard delete failed"})
+		return
+	}
+
+	// Publish MQTT event
+	if h.mqtt != nil && flow != nil {
+		flowMap := flowToMap(*flow)
+		h.mqtt.PublishFlowEvent("hard_deleted", flow.FlowID, flowMap, nil)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "hard_deleted": true})
 }
 
 func (h *Handler) SetFlowLock(w http.ResponseWriter, r *http.Request) {

@@ -133,10 +133,14 @@ go-NMOS/
 - `PATCH /api/flows/{id}`
 - `POST /api/flows/{id}/lock` (lock/unlock flow)
 - `DELETE /api/flows/{id}` (admin)
+- `DELETE /api/flows/{id}/hard` (admin, requires `hard_delete_enabled=true` setting)
 
 #### NMOS Discovery & Apply
 - `GET /api/nmos/discover?base_url=http://<host>:<port>`
 - `POST /api/nmos/discover` body: `{ "base_url": "http://<host>:<port>" }`
+- `POST /api/nmos/detect-is05` body: `{ "base_url": "http://<host>:<port>" }` - Auto-detect IS-05 endpoint
+- `POST /api/nmos/detect-is04-from-rds` body: `{ "rds_query_url": "http://<registry>:<port>", "node_id": "optional" }` - Auto-detect IS-04 from RDS
+- `POST /api/nmos/explore-ports` body: `{ "host": "192.168.1.100", "ports": [8080, 8081], "port_range": "8080-8090", "concurrency": 10, "timeout": 3 }` - Port scanning (Admin only)
 - `POST /api/flows/{id}/nmos/apply` body: `{ "connection_url": "http://.../staged", "sender_id": "optional" }`
 
 #### NMOS Registry (RDS)
@@ -146,7 +150,8 @@ go-NMOS/
 
 #### Checker
 - `GET /api/checker/collisions`
-- `GET /api/checker/latest?kind=collisions`
+- `GET /api/checker/nmos?timeout=5` - NMOS difference detection
+- `GET /api/checker/latest?kind=collisions|nmos`
 
 #### Automation
 - `GET /api/automation/jobs`
@@ -386,8 +391,44 @@ Frontend uses Vite and reads API URL from environment. Default API endpoint: `ht
 
 ## Security Notes for Production
 
-- Put backend behind reverse proxy with TLS
+- Put backend behind reverse proxy with TLS (or use built-in HTTPS support)
 - Use strong `JWT_SECRET` (generate with `openssl rand -base64 32`)
+
+### HTTPS Support
+
+The backend supports HTTPS with TLS certificates. To enable HTTPS:
+
+1. **Generate a self-signed certificate** (for development):
+   ```bash
+   ./scripts/generate-self-signed-cert.sh [CN] [SANs]
+   # Example:
+   ./scripts/generate-self-signed-cert.sh localhost "DNS:localhost,DNS:*.local,IP:127.0.0.1"
+   ```
+
+2. **Configure environment variables** in `backend/.env`:
+   ```bash
+   HTTPS_ENABLED=true
+   HTTPS_PORT=8443
+   CERT_FILE=/certs/server.crt
+   KEY_FILE=/certs/server.key
+   ```
+
+3. **Mount certificates** in `docker-compose.yml` (already configured):
+   ```yaml
+   volumes:
+     - ./certs:/certs:ro
+   ```
+
+4. **Access HTTPS endpoint**:
+   - HTTPS: `https://localhost:8443`
+   - HTTP: `http://localhost:9090` (still available)
+
+**Note**: Self-signed certificates will trigger browser security warnings. For production, use certificates from a trusted CA (Let's Encrypt, corporate CA, etc.).
+
+**Production Recommendations**:
+- Use Let's Encrypt certificates via certbot
+- Or use a reverse proxy (nginx, Traefik) with TLS termination
+- Keep HTTP server enabled for internal health checks
 - Replace seeded admin credentials immediately
 - Restrict CORS origin to your frontend domain
 - Add rate-limit, audit trail, and secret management (Vault/KMS)

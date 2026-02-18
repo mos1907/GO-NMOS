@@ -20,6 +20,11 @@ type Config struct {
 	MQTTEnabled     bool
 	MQTTBrokerURL   string
 	MQTTTopicPrefix string
+	DisableAuth     bool
+	HTTPSEnabled    bool
+	HTTPSPort       string
+	CertFile        string
+	KeyFile         string
 }
 
 func Load() Config {
@@ -37,6 +42,11 @@ func Load() Config {
 		MQTTEnabled:     getenvBool("MQTT_ENABLED", true),
 		MQTTBrokerURL:   getenv("MQTT_BROKER_URL", "tcp://mqtt:1883"),
 		MQTTTopicPrefix: getenv("MQTT_TOPIC_PREFIX", "go-nmos/flows/events"),
+		DisableAuth:     getenvBool("DISABLE_AUTH", false),
+		HTTPSEnabled:    getenvBool("HTTPS_ENABLED", false),
+		HTTPSPort:       getenv("HTTPS_PORT", "8443"),
+		CertFile:        getenv("CERT_FILE", "/certs/server.crt"),
+		KeyFile:         getenv("KEY_FILE", "/certs/server.key"),
 	}
 
 	if cfg.JWTSecret == "change-me-in-production" {

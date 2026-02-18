@@ -6,6 +6,13 @@
 # Logs
 logs/
 *.log
+
+# Certificates (self-signed)
+certs/
+*.crt
+*.key
+*.pem
+!**/certs/.gitkeep
 /tmp/go-nmos-logs/
 
 # IDE
@@ -38,3 +45,12 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# Comparison/analysis documents (temporary)
+*_COMPARISON.md
+*_comparison.md
+
+# GitHub setup/improvement guides (temporary)
+GITHUB_*.md
+*_SETUP.md
+*_IMPROVEMENT*.md

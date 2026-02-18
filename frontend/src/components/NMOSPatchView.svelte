@@ -162,15 +162,19 @@
 
       <div class="flex-1 overflow-auto space-y-1">
         {#if senderNodeSenders.length === 0}
-          <div class="text-center py-8 text-gray-500 text-sm">
-            No sources available
+          <div class="flex flex-col items-center justify-center py-12 text-center">
+            <svg class="w-12 h-12 text-gray-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            <p class="text-sm font-medium text-gray-400 mb-1">No sources available</p>
+            <p class="text-xs text-gray-500">Select a node to load sources</p>
           </div>
         {:else}
           {#each (filterSenders ? filterSenders(senderNodeSenders) : senderNodeSenders) as s}
             <button
               type="button"
-              class="w-full text-left px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 border transition-colors {selectedPatchSender && selectedPatchSender.id === s.id
-                ? 'border-orange-600 bg-orange-900/20'
+              class="w-full text-left px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 border transition-all duration-150 {selectedPatchSender && selectedPatchSender.id === s.id
+                ? 'border-orange-600 bg-orange-900/20 shadow-md shadow-orange-500/20'
                 : 'border-gray-700'}"
               on:click={() => onSelectPatchSender?.(s)}
             >
@@ -253,8 +257,12 @@
 
       <div class="flex-1 overflow-auto space-y-1">
         {#if receiverNodeReceivers.length === 0}
-          <div class="text-center py-8 text-gray-500 text-sm">
-            No destinations available
+          <div class="flex flex-col items-center justify-center py-12 text-center">
+            <svg class="w-12 h-12 text-gray-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <p class="text-sm font-medium text-gray-400 mb-1">No destinations available</p>
+            <p class="text-xs text-gray-500">Select a node to load receivers</p>
           </div>
         {:else}
           {#each (filterReceivers ? filterReceivers(receiverNodeReceivers) : receiverNodeReceivers) as r}

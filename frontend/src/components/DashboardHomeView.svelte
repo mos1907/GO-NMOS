@@ -1,7 +1,11 @@
 <script>
+  import EmptyState from "./EmptyState.svelte";
+  import { IconPlus } from "../lib/icons.js";
+
   export let summary = { total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 };
   export let flows = [];
   export let flowTotal = 0;
+  export let onCreateFlow = null;
 </script>
 
 <section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4">
@@ -49,25 +53,39 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-800">
-        {#each flows.slice(0, 12) as flow}
-          <tr class="hover:bg-gray-800/70">
-            <td class="px-4 py-2 text-gray-100 truncate text-[13px] font-medium">{flow.display_name}</td>
-            <td class="px-4 py-2 text-gray-300 truncate">{flow.flow_id}</td>
-            <td class="px-4 py-2 text-gray-300">{flow.multicast_ip}</td>
-            <td class="px-4 py-2 text-gray-300">{flow.port}</td>
-            <td class="px-4 py-2">
-              <span
-                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium {flow.flow_status === 'active'
-                  ? 'bg-emerald-900 text-emerald-200 border border-emerald-700'
-                  : flow.flow_status === 'maintenance'
-                    ? 'bg-amber-900 text-amber-200 border border-amber-700'
-                    : 'bg-slate-800 text-slate-200 border border-slate-700'}"
-              >
-                {flow.flow_status}
-              </span>
+        {#if flows.length === 0}
+          <tr>
+            <td colspan="5" class="px-6 py-12">
+              <EmptyState
+                title="No flows yet"
+                message="Create your first flow to get started with NMOS management."
+                actionLabel={onCreateFlow ? "Create Flow" : ""}
+                onAction={onCreateFlow}
+                icon={IconPlus}
+              />
             </td>
           </tr>
-        {/each}
+        {:else}
+          {#each flows.slice(0, 12) as flow}
+            <tr class="hover:bg-gray-800/70 transition-colors">
+              <td class="px-4 py-2 text-gray-100 truncate text-[13px] font-medium">{flow.display_name}</td>
+              <td class="px-4 py-2 text-gray-300 truncate">{flow.flow_id}</td>
+              <td class="px-4 py-2 text-gray-300">{flow.multicast_ip}</td>
+              <td class="px-4 py-2 text-gray-300">{flow.port}</td>
+              <td class="px-4 py-2">
+                <span
+                  class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors {flow.flow_status === 'active'
+                    ? 'bg-emerald-900 text-emerald-200 border border-emerald-700'
+                    : flow.flow_status === 'maintenance'
+                      ? 'bg-amber-900 text-amber-200 border border-amber-700'
+                      : 'bg-slate-800 text-slate-200 border border-slate-700'}"
+                >
+                  {flow.flow_status}
+                </span>
+              </td>
+            </tr>
+          {/each}
+        {/if}
       </tbody>
     </table>
   </div>

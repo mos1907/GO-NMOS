@@ -70,6 +70,7 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("editor", "admin")).Patch("/flows/{id}", h.PatchFlow)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/lock", h.SetFlowLock)
 		api.With(requireRole("admin")).Delete("/flows/{id}", h.DeleteFlow)
+		api.With(requireRole("admin")).Delete("/flows/{id}/hard", h.HardDeleteFlow)
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/settings", h.GetSettings)
 		api.With(requireRole("admin")).Patch("/settings/{key}", h.PatchSetting)
@@ -79,6 +80,9 @@ func (h *Handler) Router() http.Handler {
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/discover", h.DiscoverNMOS)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/discover", h.DiscoverNMOS)
+		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/detect-is05", h.DetectIS05Endpoint)
+		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/detect-is04-from-rds", h.DetectIS04FromRDS)
+		api.With(requireRole("admin")).Post("/nmos/explore-ports", h.ExplorePorts)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/check", h.CheckFlowNMOS)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/apply", h.ApplyFlowNMOS)
 
@@ -91,6 +95,7 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/receivers", h.ListNMOSReceiversHandler)
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/collisions", h.CheckerCollisions)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/nmos", h.CheckerNMOS)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/latest", h.CheckerLatest)
 
 		api.With(requireRole("editor", "admin")).Get("/automation/jobs", h.ListAutomationJobs)

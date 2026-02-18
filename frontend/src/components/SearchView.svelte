@@ -1,4 +1,7 @@
 <script>
+  import EmptyState from "./EmptyState.svelte";
+  import { IconSearch } from "../lib/icons.js";
+
   export let searchTerm = "";
   export let searchResults = [];
   export let searchLimit = 50;
@@ -23,11 +26,17 @@
     </span>
   </div>
   <div class="flex flex-wrap gap-2 items-center">
-    <input
-      bind:value={searchTerm}
-      placeholder="Search by name/ip/flow id/note..."
-      class="px-3 py-2 rounded-md border border-gray-700 bg-gray-900 text-sm min-w-[260px] flex-1 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-orange-500"
-    />
+    <div class="relative flex-1 min-w-[260px]">
+      <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+        {@html IconSearch}
+      </div>
+      <input
+        bind:value={searchTerm}
+        placeholder="Search by name/ip/flow id/note..."
+        class="w-full pl-10 pr-3 py-2 rounded-md border border-gray-700 bg-gray-900 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+        on:keydown={(e) => e.key === "Enter" && onRunSearch?.()}
+      />
+    </div>
     <button
       class="px-3 py-2 rounded-md bg-orange-600 text-white text-xs font-semibold hover:bg-orange-500 transition-colors"
       on:click={onRunSearch}
@@ -60,14 +69,36 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-800">
-        {#each searchResults as flow}
-          <tr class="hover:bg-gray-800/70">
-            <td class="px-3 py-2 text-[13px] font-medium text-gray-100">{flow.display_name}</td>
-            <td class="px-3 py-2 text-gray-300">{flow.flow_id}</td>
-            <td class="px-3 py-2 text-gray-300">{flow.multicast_ip}</td>
-            <td class="px-3 py-2 text-gray-300">{flow.port}</td>
+        {#if searchResults.length === 0 && searchTerm}
+          <tr>
+            <td colspan="4" class="px-6 py-12">
+              <EmptyState
+                title="No results found"
+                message="Try adjusting your search terms or check the spelling."
+                icon={IconSearch}
+              />
+            </td>
           </tr>
-        {/each}
+        {:else if searchResults.length === 0}
+          <tr>
+            <td colspan="4" class="px-6 py-12">
+              <EmptyState
+                title="Start searching"
+                message="Enter a search term above to find flows by name, IP address, flow ID, or note."
+                icon={IconSearch}
+              />
+            </td>
+          </tr>
+        {:else}
+          {#each searchResults as flow}
+            <tr class="hover:bg-gray-800/70 transition-colors">
+              <td class="px-3 py-2 text-[13px] font-medium text-gray-100">{flow.display_name}</td>
+              <td class="px-3 py-2 text-gray-300">{flow.flow_id}</td>
+              <td class="px-3 py-2 text-gray-300">{flow.multicast_ip}</td>
+              <td class="px-3 py-2 text-gray-300">{flow.port}</td>
+            </tr>
+          {/each}
+        {/if}
       </tbody>
     </table>
   </div>
