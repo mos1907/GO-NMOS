@@ -78,6 +78,7 @@
 
   // Basit UI sürüm bilgisi (frontend build versiyonu)
   const uiVersion = "go-NMOS UI v0.2.0 (router beta)";
+  let showBuildModal = true;
 
   async function loadDashboard() {
     loading = true;
@@ -691,22 +692,28 @@
 </script>
 
 <main class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-  <header class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-xl font-semibold text-black">go-NMOS</h1>
+  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+    <div class="space-y-1">
+      <h1 class="text-2xl font-semibold tracking-tight text-black">
+        go-NMOS <span class="ml-1 text-xs align-middle rounded-full border border-svelte/40 bg-svelte/10 px-2 py-0.5 font-medium text-black">Dashboard</span>
+      </h1>
       <p class="text-xs text-black/70">
-        User: {user?.username} (<span class="uppercase">{user?.role}</span>)
+        Signed in as <span class="font-semibold">{user?.username}</span>
+        <span class="mx-2 h-3 w-px inline-block bg-black/20 align-middle" />
+        <span class="uppercase text-[11px] tracking-wide px-2 py-0.5 rounded-full bg-nmos-bg border border-svelte/30">
+          {user?.role}
+        </span>
       </p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 text-xs">
       <button
-        class="px-3 py-1.5 rounded-md text-xs bg-nmos-bg hover:bg-svelte/20 border border-svelte/40 text-black"
+        class="px-3 py-1.5 rounded-md bg-nmos-bg hover:bg-svelte/20 border border-slate-300 text-black font-medium shadow-sm transition"
         on:click={refreshAll}
       >
         Refresh
       </button>
       <button
-        class="px-3 py-1.5 rounded-md text-xs bg-svelte hover:bg-orange-500 text-black font-semibold"
+        class="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-black text-white font-semibold shadow-sm transition"
         on:click={onLogout}
       >
         Logout
@@ -714,27 +721,27 @@
     </div>
   </header>
 
-  <nav class="flex flex-wrap gap-2 border-b border-svelte/30 pb-2 text-xs">
+  <nav class="flex flex-wrap gap-2 border-b border-slate-200 pb-2 text-xs mt-3">
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'dashboard'
-        ? 'border-svelte bg-svelte/20 text-black font-semibold'
-        : 'border-transparent bg-nmos-bg text-black/70 hover:border-svelte/50 hover:bg-svelte/10'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft font-semibold shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-svelte/10'}"
       on:click={() => (currentView = "dashboard")}
     >
       Dashboard
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'flows'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "flows")}
     >
       Flows
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'search'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "search")}
     >
       Search
@@ -742,8 +749,8 @@
     {#if canEdit}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'newFlow'
-          ? 'border-svelte bg-slate-900 text-svelte-soft'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
         on:click={() => (currentView = "newFlow")}
       >
         New Flow
@@ -752,8 +759,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'users'
-          ? 'border-svelte bg-slate-900 text-svelte-soft'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
         on:click={() => (currentView = "users")}
       >
         Users
@@ -761,24 +768,24 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmos'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "nmos")}
     >
       NMOS
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'nmosPatch'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "nmosPatch")}
     >
       NMOS Patch
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'checker'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "checker")}
     >
       Checker
@@ -786,8 +793,8 @@
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'automation'
-          ? 'border-svelte bg-slate-900 text-svelte-soft'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
         on:click={() => (currentView = "automation")}
       >
         Automation
@@ -795,16 +802,16 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'planner'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "planner")}
     >
       Planner
     </button>
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'addressMap'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "addressMap")}
     >
       Address Map
@@ -812,8 +819,8 @@
     {#if isAdmin}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'logs'
-          ? 'border-svelte bg-slate-900 text-svelte-soft'
-          : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+          ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+          : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
         on:click={() => {
           currentView = "logs";
           loadLogs();
@@ -824,24 +831,52 @@
     {/if}
     <button
       class="px-3 py-1.5 rounded-md border {currentView === 'settings'
-        ? 'border-svelte bg-slate-900 text-svelte-soft'
-        : 'border-transparent bg-slate-900/40 text-slate-300 hover:border-slate-700'}"
+        ? 'border-slate-900 bg-slate-900 text-svelte-soft shadow-sm'
+        : 'border-transparent bg-nmos-bg text-black/70 hover:border-slate-300 hover:bg-slate-900/5'}"
       on:click={() => (currentView = "settings")}
     >
       Settings
     </button>
   </nav>
 
-  <!-- Sürüm / build uyarı mesajı -->
-  <div class="mt-3 mb-2 rounded-lg border border-svelte/60 bg-svelte/20 px-3 py-2 text-[11px] text-black flex items-center justify-between gap-2">
-    <div>
-      <span class="font-semibold">Sürüm:</span>
-      <span class="ml-1">{uiVersion}</span>
-      <span class="ml-2 text-black/80">
-        Bu mesajı görüyorsan frontend güncel build ile çalışıyor.
-      </span>
+  {#if showBuildModal}
+    <!-- Sürüm / build popup -->
+    <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+      <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/40 p-5 space-y-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="space-y-1">
+            <div class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+              <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.35)]"></span>
+              <span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-900">
+                UI Build Status
+              </span>
+            </div>
+            <p class="text-sm font-semibold text-black mt-1">
+              You are running the latest frontend build.
+            </p>
+            <p class="text-xs text-black/70">
+              Current version: <span class="font-semibold">{uiVersion}</span>
+            </p>
+          </div>
+          <button
+            class="shrink-0 rounded-full border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 w-7 h-7 flex items-center justify-center text-xs"
+            on:click={() => (showBuildModal = false)}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="flex justify-end">
+          <button
+            class="px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-semibold hover:bg-black"
+            on:click={() => (showBuildModal = false)}
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
+  {/if}
 
   {#if success}
     <p class="text-xs font-semibold text-svelte">{success}</p>
@@ -854,56 +889,61 @@
   {:else}
     {#if currentView === "dashboard"}
       <section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4">
-        <div class="rounded-xl border border-svelte/40 bg-nmos-bg px-3 py-3">
-          <p class="text-[11px] text-black/70">Total</p>
-          <p class="text-2xl font-semibold text-black">{summary.total}</p>
+        <div class="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+          <p class="text-[11px] text-black/60 font-medium uppercase tracking-wide">Total</p>
+          <p class="mt-1 text-2xl font-semibold text-black">{summary.total}</p>
         </div>
-        <div class="rounded-xl border border-svelte/60 bg-svelte/20 px-3 py-3">
-          <p class="text-[11px] text-black/80">Active</p>
-          <p class="text-2xl font-semibold text-black">{summary.active}</p>
+        <div class="rounded-xl border border-slate-200 bg-emerald-50 px-3 py-3 shadow-sm">
+          <p class="text-[11px] text-emerald-800 font-medium uppercase tracking-wide">Active</p>
+          <p class="mt-1 text-2xl font-semibold text-emerald-900">{summary.active}</p>
         </div>
-        <div class="rounded-xl border border-svelte/60 bg-svelte/20 px-3 py-3">
-          <p class="text-[11px] text-black/80">Locked</p>
-          <p class="text-2xl font-semibold text-black">{summary.locked}</p>
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 shadow-sm">
+          <p class="text-[11px] text-amber-800 font-medium uppercase tracking-wide">Locked</p>
+          <p class="mt-1 text-2xl font-semibold text-amber-900">{summary.locked}</p>
         </div>
-        <div class="rounded-xl border border-svelte/40 bg-nmos-bg px-3 py-3">
-          <p class="text-[11px] text-black/70">Unused</p>
-          <p class="text-2xl font-semibold text-black">{summary.unused}</p>
+        <div class="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+          <p class="text-[11px] text-black/60 font-medium uppercase tracking-wide">Unused</p>
+          <p class="mt-1 text-2xl font-semibold text-black">{summary.unused}</p>
         </div>
-        <div class="rounded-xl border border-svelte/60 bg-svelte/20 px-3 py-3">
-          <p class="text-[11px] text-black/80">Maintenance</p>
-          <p class="text-2xl font-semibold text-black">{summary.maintenance}</p>
+        <div class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 shadow-sm">
+          <p class="text-[11px] text-sky-800 font-medium uppercase tracking-wide">Maintenance</p>
+          <p class="mt-1 text-2xl font-semibold text-sky-900">{summary.maintenance}</p>
         </div>
       </section>
-      <section class="rounded-xl border border-svelte/40 bg-nmos-bg">
-        <div class="flex items-center justify-between px-3 py-2 border-b border-svelte/30">
-          <h3 class="text-sm font-semibold text-black">Latest Flows</h3>
-          <span class="text-[11px] text-black/70">Showing {Math.min(flows.length, 12)} of {flowTotal}</span>
+      <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <div>
+            <h3 class="text-sm font-semibold text-black">Latest Flows</h3>
+            <p class="text-[11px] text-black/60 mt-0.5">Son eklenen/ güncellenen akışların özeti</p>
+          </div>
+          <span class="text-[11px] text-black/70 bg-nmos-bg px-2 py-0.5 rounded-full border border-slate-200">
+            Showing {Math.min(flows.length, 12)} of {flowTotal}
+          </span>
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full text-xs">
-            <thead class="bg-svelte/10">
+            <thead class="bg-slate-50">
               <tr>
-                <th class="text-left px-3 py-2 border-b border-svelte/30 font-medium text-black">Display Name</th>
-                <th class="text-left px-3 py-2 border-b border-svelte/30 font-medium text-black">Flow ID</th>
-                <th class="text-left px-3 py-2 border-b border-svelte/30 font-medium text-black">Multicast</th>
-                <th class="text-left px-3 py-2 border-b border-svelte/30 font-medium text-black">Port</th>
-                <th class="text-left px-3 py-2 border-b border-svelte/30 font-medium text-black">Status</th>
+                <th class="text-left px-4 py-2 border-b border-slate-200 font-medium text-black/80">Display Name</th>
+                <th class="text-left px-4 py-2 border-b border-slate-200 font-medium text-black/80">Flow ID</th>
+                <th class="text-left px-4 py-2 border-b border-slate-200 font-medium text-black/80">Multicast</th>
+                <th class="text-left px-4 py-2 border-b border-slate-200 font-medium text-black/80">Port</th>
+                <th class="text-left px-4 py-2 border-b border-slate-200 font-medium text-black/80">Status</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody class="divide-y divide-slate-100">
               {#each flows.slice(0, 12) as flow}
-                <tr class="hover:bg-svelte/10">
-                  <td class="px-3 py-1.5 border-b border-svelte/20 text-black truncate">{flow.display_name}</td>
-                  <td class="px-3 py-1.5 border-b border-svelte/20 text-black/70 truncate">{flow.flow_id}</td>
-                  <td class="px-3 py-1.5 border-b border-svelte/20 text-black">{flow.multicast_ip}</td>
-                  <td class="px-3 py-1.5 border-b border-svelte/20 text-black">{flow.port}</td>
-                  <td class="px-3 py-1.5 border-b border-svelte/20">
-                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] {flow.flow_status === 'active'
-                      ? 'bg-svelte/30 text-black border border-svelte/60'
+                <tr class="hover:bg-slate-50/80">
+                  <td class="px-4 py-2 text-black truncate text-[13px] font-medium">{flow.display_name}</td>
+                  <td class="px-4 py-2 text-black/70 truncate">{flow.flow_id}</td>
+                  <td class="px-4 py-2 text-black">{flow.multicast_ip}</td>
+                  <td class="px-4 py-2 text-black">{flow.port}</td>
+                  <td class="px-4 py-2">
+                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium {flow.flow_status === 'active'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                       : flow.flow_status === 'maintenance'
-                      ? 'bg-svelte/20 text-black border border-svelte/60'
-                      : 'bg-nmos-bg text-black border border-svelte/40'}">
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                      : 'bg-slate-50 text-slate-700 border border-slate-200'}">
                       {flow.flow_status}
                     </span>
                   </td>
@@ -916,99 +956,180 @@
     {/if}
 
     {#if currentView === "flows"}
-        <h3>Flows</h3>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-          <label>Sort by
-            <select bind:value={flowSortBy} on:change={applyFlowSort}>
-              <option value="updated_at">updated_at</option>
-              <option value="created_at">created_at</option>
-              <option value="display_name">display_name</option>
-              <option value="flow_status">flow_status</option>
-              <option value="multicast_ip">multicast_ip</option>
-              <option value="source_ip">source_ip</option>
-              <option value="port">port</option>
-            </select>
-          </label>
-          <label>Order
-            <select bind:value={flowSortOrder} on:change={applyFlowSort}>
-              <option value="desc">desc</option>
-              <option value="asc">asc</option>
-            </select>
-          </label>
-          <button on:click={prevFlowPage} disabled={flowOffset === 0}>Prev</button>
-          <button on:click={nextFlowPage} disabled={flowOffset + flowLimit >= flowTotal}>Next</button>
-          <small>Showing {flowOffset + 1}-{Math.min(flowOffset + flowLimit, flowTotal)} / {flowTotal}</small>
+      <section class="mt-4 space-y-3">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="text-sm font-semibold text-black">Flows</h3>
+            <p class="text-[11px] text-black/60">Akış listesini filtreleyin ve yönetin</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <label class="flex items-center gap-1 text-black/70">
+              <span>Sort by</span>
+              <select
+                bind:value={flowSortBy}
+                on:change={applyFlowSort}
+                class="px-2 py-1 rounded-md border border-slate-300 bg-white text-xs"
+              >
+                <option value="updated_at">updated_at</option>
+                <option value="created_at">created_at</option>
+                <option value="display_name">display_name</option>
+                <option value="flow_status">flow_status</option>
+                <option value="multicast_ip">multicast_ip</option>
+                <option value="source_ip">source_ip</option>
+                <option value="port">port</option>
+              </select>
+            </label>
+            <label class="flex items-center gap-1 text-black/70">
+              <span>Order</span>
+              <select
+                bind:value={flowSortOrder}
+                on:change={applyFlowSort}
+                class="px-2 py-1 rounded-md border border-slate-300 bg-white text-xs"
+              >
+                <option value="desc">desc</option>
+                <option value="asc">asc</option>
+              </select>
+            </label>
+            <div class="flex items-center gap-1">
+              <button
+                class="px-2.5 py-1 rounded-md border border-slate-300 bg-white text-xs hover:bg-slate-50 disabled:opacity-40"
+                on:click={prevFlowPage}
+                disabled={flowOffset === 0}
+              >
+                Prev
+              </button>
+              <button
+                class="px-2.5 py-1 rounded-md border border-slate-300 bg-white text-xs hover:bg-slate-50 disabled:opacity-40"
+                on:click={nextFlowPage}
+                disabled={flowOffset + flowLimit >= flowTotal}
+              >
+                Next
+              </button>
+            </div>
+            <span class="text-[11px] text-black/60">
+              Showing {flowOffset + 1}-{Math.min(flowOffset + flowLimit, flowTotal)} / {flowTotal}
+            </span>
+          </div>
         </div>
-      <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Display Name</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Flow ID</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Multicast</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Source</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Port</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Status</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Availability</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Locked</th>
-            {#if canEdit}
-              <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Action</th>
-            {/if}
-          </tr>
-        </thead>
-        <tbody>
-          {#each flows as flow}
-            <tr>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.display_name}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.flow_id}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.multicast_ip}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.source_ip}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.port}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.flow_status}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.availability}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.locked ? "🔒" : "🔓"}</td>
-              {#if canEdit}
-                <td style="border-bottom:1px solid #eee;padding:8px;display:flex;gap:4px;">
-                  <button on:click={() => toggleFlowLock(flow)}>{flow.locked ? "Unlock" : "Lock"}</button>
-                  {#if isAdmin}
-                    <button on:click={() => deleteFlow(flow)}>Delete</button>
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <table class="min-w-full text-xs">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Display Name</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Flow ID</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Multicast</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Source</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Port</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Status</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Availability</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Locked</th>
+                {#if canEdit}
+                  <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Action</th>
+                {/if}
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {#each flows as flow}
+                <tr class="hover:bg-slate-50/80">
+                  <td class="px-3 py-2 text-[13px] font-medium text-black">{flow.display_name}</td>
+                  <td class="px-3 py-2 text-black/70">{flow.flow_id}</td>
+                  <td class="px-3 py-2 text-black">{flow.multicast_ip}</td>
+                  <td class="px-3 py-2 text-black">{flow.source_ip}</td>
+                  <td class="px-3 py-2 text-black">{flow.port}</td>
+                  <td class="px-3 py-2 text-black/80">{flow.flow_status}</td>
+                  <td class="px-3 py-2 text-black/80">{flow.availability}</td>
+                  <td class="px-3 py-2 text-lg">{flow.locked ? "🔒" : "🔓"}</td>
+                  {#if canEdit}
+                    <td class="px-3 py-2">
+                      <div class="flex flex-wrap gap-1.5">
+                        <button
+                          class="px-2.5 py-1 rounded-md border border-slate-300 bg-white text-[11px] hover:bg-slate-50"
+                          on:click={() => toggleFlowLock(flow)}
+                        >
+                          {flow.locked ? "Unlock" : "Lock"}
+                        </button>
+                        {#if isAdmin}
+                          <button
+                            class="px-2.5 py-1 rounded-md border border-red-300 bg-red-50 text-[11px] text-red-700 hover:bg-red-100"
+                            on:click={() => deleteFlow(flow)}
+                          >
+                            Delete
+                          </button>
+                        {/if}
+                      </div>
+                    </td>
                   {/if}
-                </td>
-              {/if}
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
     {/if}
 
     {#if currentView === "search"}
-      <h3>Quick Search</h3>
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input bind:value={searchTerm} placeholder="Search by name/ip/flow id/note..." style="padding:10px;width:min(500px,100%);" />
-        <button on:click={runSearch}>Search</button>
-        <button on:click={prevSearchPage} disabled={searchOffset === 0}>Prev</button>
-        <button on:click={nextSearchPage} disabled={searchOffset + searchLimit >= searchTotal}>Next</button>
-        <small style="align-self:center;">{searchTotal > 0 ? `${searchOffset + 1}-${Math.min(searchOffset + searchLimit, searchTotal)} / ${searchTotal}` : "0 result"}</small>
-      </div>
-      <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Display Name</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Flow ID</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Multicast</th>
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Port</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each searchResults as flow}
-            <tr>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.display_name}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.flow_id}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.multicast_ip}</td>
-              <td style="border-bottom:1px solid #eee;padding:8px;">{flow.port}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      <section class="mt-4 space-y-3">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="text-sm font-semibold text-black">Quick Search</h3>
+            <p class="text-[11px] text-black/60">Akışları isim, IP veya flow ID ile hızlıca bulun</p>
+          </div>
+          <span class="text-[11px] text-black/60">
+            {searchTotal > 0
+              ? `${searchOffset + 1}-${Math.min(searchOffset + searchLimit, searchTotal)} / ${searchTotal}`
+              : "0 result"}
+          </span>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input
+            bind:value={searchTerm}
+            placeholder="Search by name/ip/flow id/note..."
+            class="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm min-w-[260px] flex-1"
+          />
+          <button
+            class="px-3 py-2 rounded-md bg-slate-900 text-white text-xs font-semibold hover:bg-black"
+            on:click={runSearch}
+          >
+            Search
+          </button>
+          <button
+            class="px-2.5 py-1.5 rounded-md border border-slate-300 bg-white text-xs hover:bg-slate-50 disabled:opacity-40"
+            on:click={prevSearchPage}
+            disabled={searchOffset === 0}
+          >
+            Prev
+          </button>
+          <button
+            class="px-2.5 py-1.5 rounded-md border border-slate-300 bg-white text-xs hover:bg-slate-50 disabled:opacity-40"
+            on:click={nextSearchPage}
+            disabled={searchOffset + searchLimit >= searchTotal}
+          >
+            Next
+          </button>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <table class="min-w-full text-xs">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Display Name</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Flow ID</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Multicast</th>
+                <th class="text-left border-b border-slate-200 px-3 py-2 font-medium text-black/80">Port</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {#each searchResults as flow}
+                <tr class="hover:bg-slate-50/80">
+                  <td class="px-3 py-2 text-[13px] font-medium text-black">{flow.display_name}</td>
+                  <td class="px-3 py-2 text-black/70">{flow.flow_id}</td>
+                  <td class="px-3 py-2 text-black">{flow.multicast_ip}</td>
+                  <td class="px-3 py-2 text-black">{flow.port}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
     {/if}
 
     {#if currentView === "newFlow" && canEdit}
@@ -1312,16 +1433,27 @@
 
           <!-- TAKE butonu (orta) -->
           <div class="flex flex-col items-center justify-center gap-4">
-            <button
-              class="w-40 h-40 rounded-full bg-gradient-to-br from-svelte to-orange-500 text-black font-bold text-xl shadow-[0_0_50px_rgba(255,62,0,0.8)] flex flex-col items-center justify-center gap-2 disabled:opacity-30 disabled:shadow-none disabled:cursor-not-allowed hover:scale-110 active:scale-105 transition"
-              on:click={executePatchTake}
-              disabled={!isPatchTakeReady()}
-            >
-              <svg class="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-              <span>{nmosTakeBusy ? "TAKING..." : "TAKE"}</span>
-            </button>
+            <div class="rounded-2xl border border-slate-300 bg-white shadow-lg shadow-orange-500/20 p-3">
+              <button
+                class="w-40 h-40 rounded-xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-svelte-soft font-bold text-xl flex flex-col items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-100 transition transform"
+                on:click={executePatchTake}
+                disabled={!isPatchTakeReady()}
+              >
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-svelte to-orange-400 flex items-center justify-center shadow-inner">
+                  <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </div>
+                <span class="tracking-wide">{nmosTakeBusy ? "TAKING..." : "TAKE"}</span>
+                <span class="text-[11px] font-medium text-slate-300">
+                  {#if !isPatchTakeReady()}
+                    Select endpoints to enable
+                  {:else}
+                    Ready to patch
+                  {/if}
+                </span>
+              </button>
+            </div>
             <div class="flex items-center gap-2 text-sm text-black px-4 py-2 rounded-full bg-svelte/20 border border-svelte/40">
               <span class="inline-flex h-3 w-3 rounded-full {isPatchTakeReady() ? 'bg-svelte' : 'bg-black/30'}"></span>
               <span class="font-medium">
