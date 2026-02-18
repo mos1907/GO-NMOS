@@ -1,23 +1,40 @@
 <script>
   import EmptyState from "./EmptyState.svelte";
+  import NewFlowView from "./NewFlowView.svelte";
   import { IconPlus } from "../lib/icons.js";
 
-  export let flows = [];
-  export let flowLimit = 50;
-  export let flowOffset = 0;
-  export let flowTotal = 0;
-  export let flowSortBy = "updated_at";
-  export let flowSortOrder = "desc";
+  let {
+    flows = [],
+    flowLimit = 50,
+    flowOffset = 0,
+    flowTotal = 0,
+    flowSortBy = "updated_at",
+    flowSortOrder = "desc",
+    canEdit = false,
+    isAdmin = false,
+    onApplyFlowSort,
+    onPrevFlowPage,
+    onNextFlowPage,
+    onToggleFlowLock,
+    onDeleteFlow,
+    onCreateFlow = null,
+    newFlow = null,
+  } = $props();
 
-  export let canEdit = false;
-  export let isAdmin = false;
+  let showNewFlowModal = $state(false);
 
-  export let onApplyFlowSort;
-  export let onPrevFlowPage;
-  export let onNextFlowPage;
-  export let onToggleFlowLock;
-  export let onDeleteFlow;
-  export let onCreateFlow = null;
+  function handleOpenModal() {
+    showNewFlowModal = true;
+  }
+
+  function handleCloseModal() {
+    showNewFlowModal = false;
+  }
+
+  function handleCreateFlow() {
+    onCreateFlow?.();
+    handleCloseModal();
+  }
 </script>
 
 <section class="mt-4 space-y-3">
@@ -27,6 +44,15 @@
       <p class="text-[11px] text-gray-400">Filter and manage flow list</p>
     </div>
     <div class="flex flex-wrap items-center gap-2 text-xs">
+      {#if canEdit}
+        <button
+          on:click={handleOpenModal}
+          class="px-3 py-1.5 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+        >
+          {@html IconPlus}
+          Add Flow
+        </button>
+      {/if}
       <label class="flex items-center gap-1 text-gray-300">
         <span>Sort by</span>
         <select
@@ -155,3 +181,12 @@
   </div>
 </section>
 
+<!-- New Flow Modal -->
+{#if newFlow}
+  <NewFlowView
+    {newFlow}
+    isOpen={showNewFlowModal}
+    onCreateFlow={handleCreateFlow}
+    onClose={handleCloseModal}
+  />
+{/if}

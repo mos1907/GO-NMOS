@@ -1,105 +1,253 @@
 <script>
-  export let plannerRoots = [];
-  export let plannerChildren = [];
-  export let selectedPlannerRoot = null;
-  export let newPlannerParent;
-  export let newPlannerChild;
-  export let canEdit = false;
-  export let isAdmin = false;
+  import EmptyState from "./EmptyState.svelte";
+  import { IconDownload, IconUpload, IconPlus } from "../lib/icons.js";
 
-  export let onSelectPlannerRoot;
-  export let onPlannerQuickEdit;
-  export let onPlannerDelete;
-  export let onCreatePlannerParent;
-  export let onCreatePlannerChild;
-  export let onExportBuckets;
-  export let onImportBucketsFromFile;
+  let {
+    plannerRoots = [],
+    plannerChildren = [],
+    selectedPlannerRoot = null,
+    newPlannerParent,
+    newPlannerChild,
+    canEdit = false,
+    isAdmin = false,
+    onSelectPlannerRoot,
+    onPlannerQuickEdit,
+    onPlannerDelete,
+    onCreatePlannerParent,
+    onCreatePlannerChild,
+    onExportBuckets,
+    onImportBucketsFromFile,
+  } = $props();
+
+  // Ensure arrays are never null (reactive)
+  let safePlannerRoots = $derived(plannerRoots || []);
+  let safePlannerChildren = $derived(plannerChildren || []);
 </script>
 
-<h3>Planner Buckets</h3>
-<div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;">
-  <div style="border:1px solid #ddd;border-radius:8px;padding:10px;">
-    <h4>Drives</h4>
-    {#each plannerRoots as root}
-      <div style="display:flex;justify-content:space-between;margin:4px 0;">
-        <button on:click={() => onSelectPlannerRoot?.(root)}>{root.name}</button>
-        <small>{root.cidr}</small>
+<section class="mt-4 space-y-4">
+  <div>
+    <h3 class="text-sm font-semibold text-gray-100">Planner Buckets</h3>
+    <p class="text-[11px] text-gray-400">Organize multicast addresses into drives, folders, and views</p>
+  </div>
+
+  <div class="grid md:grid-cols-[1fr_2fr] gap-4">
+    <!-- Drives Panel -->
+    <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-4">
+      <h4 class="text-sm font-semibold text-gray-100 mb-3">Drives</h4>
+      <div class="space-y-2">
+        {#if safePlannerRoots.length === 0}
+          <div class="text-center py-8 text-gray-500 text-sm">
+            No drives available
+          </div>
+        {:else}
+          {#each safePlannerRoots as root}
+            <button
+              on:click={() => onSelectPlannerRoot?.(root)}
+              class="w-full text-left px-3 py-2 rounded-md border transition-all duration-150 {selectedPlannerRoot && selectedPlannerRoot.id === root.id
+                ? 'bg-orange-600/20 border-orange-600 text-white'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700 hover:border-gray-600'}"
+            >
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-sm">{root.name}</span>
+                <span class="text-xs text-gray-400">{root.cidr}</span>
+              </div>
+            </button>
+          {/each}
+        {/if}
       </div>
-    {/each}
-  </div>
-  <div style="border:1px solid #ddd;border-radius:8px;padding:10px;">
-    <h4>Folders / Views</h4>
-    {#if selectedPlannerRoot}
-      <p>Selected drive: <strong>{selectedPlannerRoot.name}</strong></p>
-    {/if}
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Name</th>
-          <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Type</th>
-          <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">CIDR</th>
-          <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Description</th>
-          {#if canEdit}
-            <th style="text-align:left;border-bottom:1px solid #ddd;padding:8px;">Action</th>
-          {/if}
-        </tr>
-      </thead>
-      <tbody>
-        {#each plannerChildren as item}
-          <tr>
-            <td style="border-bottom:1px solid #eee;padding:8px;">{item.name}</td>
-            <td style="border-bottom:1px solid #eee;padding:8px;">{item.bucket_type}</td>
-            <td style="border-bottom:1px solid #eee;padding:8px;">{item.cidr}</td>
-            <td style="border-bottom:1px solid #eee;padding:8px;">{item.description}</td>
-            {#if canEdit}
-              <td style="border-bottom:1px solid #eee;padding:8px;">
-                <button on:click={() => onPlannerQuickEdit?.(item)}>Edit</button>
-                {#if isAdmin}
-                  <button on:click={() => onPlannerDelete?.(item)} style="margin-left:6px;">Delete</button>
+    </div>
+
+    <!-- Folders / Views Panel -->
+    <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-4">
+        <h4 class="text-sm font-semibold text-gray-100">Folders / Views</h4>
+        {#if selectedPlannerRoot}
+          <span class="text-xs text-gray-400">
+            Drive: <span class="font-medium text-gray-300">{selectedPlannerRoot.name}</span>
+          </span>
+        {/if}
+      </div>
+
+      {#if !selectedPlannerRoot}
+        <div class="text-center py-12">
+          <p class="text-gray-400 text-sm">Select a drive to view its folders and views</p>
+        </div>
+      {:else if safePlannerChildren.length === 0}
+        <div class="text-center py-12">
+          <p class="text-gray-400 text-sm">No folders or views in this drive</p>
+        </div>
+      {:else}
+        <div class="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+          <table class="min-w-full text-xs">
+            <thead class="bg-gray-800">
+              <tr>
+                <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Name</th>
+                <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Type</th>
+                <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">CIDR</th>
+                <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Description</th>
+                {#if canEdit}
+                  <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Action</th>
                 {/if}
-              </td>
-            {/if}
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-{#if canEdit}
-  <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-    <div style="border:1px solid #ddd;border-radius:8px;padding:10px;">
-      <h4>Create Folder (parent)</h4>
-      <input bind:value={newPlannerParent.name} placeholder="Name" />
-      <input bind:value={newPlannerParent.cidr} placeholder="CIDR (e.g. 239.1.0.0/16)" />
-      <input bind:value={newPlannerParent.description} placeholder="Description" />
-      <input bind:value={newPlannerParent.color} placeholder="Color (optional)" />
-      <button on:click={onCreatePlannerParent} style="margin-top:8px;">Create Parent</button>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              {#each safePlannerChildren as item}
+                <tr class="hover:bg-gray-800/70 transition-colors">
+                  <td class="px-3 py-2 text-gray-100 font-medium">{item.name}</td>
+                  <td class="px-3 py-2">
+                    <span
+                      class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {item.bucket_type === 'parent'
+                        ? 'bg-blue-900 text-blue-200 border border-blue-700'
+                        : 'bg-purple-900 text-purple-200 border border-purple-700'}"
+                    >
+                      {item.bucket_type}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-gray-300 text-[11px]">{item.cidr}</td>
+                  <td class="px-3 py-2 text-gray-400 text-[11px]">{item.description || "-"}</td>
+                  {#if canEdit}
+                    <td class="px-3 py-2">
+                      <div class="flex gap-1.5">
+                        <button
+                          on:click={() => onPlannerQuickEdit?.(item)}
+                          class="px-2.5 py-1 rounded-md border border-gray-700 bg-gray-800 text-[11px] text-gray-200 hover:bg-gray-700 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        {#if isAdmin}
+                          <button
+                            on:click={() => onPlannerDelete?.(item)}
+                            class="px-2.5 py-1 rounded-md border border-red-800 bg-red-900/60 text-[11px] text-red-200 hover:bg-red-900 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        {/if}
+                      </div>
+                    </td>
+                  {/if}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
     </div>
-    <div style="border:1px solid #ddd;border-radius:8px;padding:10px;">
-      <h4>Create View (child)</h4>
-      <input bind:value={newPlannerChild.name} placeholder="Name" />
-      <input bind:value={newPlannerChild.cidr} placeholder="CIDR or range label" />
-      <input bind:value={newPlannerChild.description} placeholder="Description" />
-      <input bind:value={newPlannerChild.color} placeholder="Color (optional)" />
-      <button
-        on:click={() => onCreatePlannerChild?.(selectedPlannerRoot)}
-        style="margin-top:8px;"
-        disabled={!selectedPlannerRoot}
-      >
-        Create Child
-      </button>
-    </div>
   </div>
-{/if}
 
-<div style="margin-top:12px;display:flex;gap:8px;">
-  <button on:click={onExportBuckets}>Export Planner</button>
   {#if canEdit}
-    <label style="display:inline-flex;align-items:center;gap:8px;">
-      <span>Import Planner:</span>
-      <input type="file" accept="application/json" on:change={onImportBucketsFromFile} />
-    </label>
-  {/if}
-</div>
+    <div class="grid md:grid-cols-2 gap-4">
+      <!-- Create Folder -->
+      <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-4">
+        <h4 class="text-sm font-semibold text-gray-100 mb-4">Create Folder (Parent)</h4>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Name</label>
+            <input
+              bind:value={newPlannerParent.name}
+              placeholder="Folder name"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">CIDR</label>
+            <input
+              bind:value={newPlannerParent.cidr}
+              placeholder="239.1.0.0/16"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Description</label>
+            <input
+              bind:value={newPlannerParent.description}
+              placeholder="Description"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Color (optional)</label>
+            <input
+              bind:value={newPlannerParent.color}
+              placeholder="#FF5733"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <button
+            on:click={onCreatePlannerParent}
+            class="w-full px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors"
+          >
+            Create Parent
+          </button>
+        </div>
+      </div>
 
+      <!-- Create View -->
+      <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-4">
+        <h4 class="text-sm font-semibold text-gray-100 mb-4">Create View (Child)</h4>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Name</label>
+            <input
+              bind:value={newPlannerChild.name}
+              placeholder="View name"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">CIDR or Range</label>
+            <input
+              bind:value={newPlannerChild.cidr}
+              placeholder="CIDR or range label"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Description</label>
+            <input
+              bind:value={newPlannerChild.description}
+              placeholder="Description"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-300 mb-1">Color (optional)</label>
+            <input
+              bind:value={newPlannerChild.color}
+              placeholder="#33FF57"
+              class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+          <button
+            on:click={() => onCreatePlannerChild?.(selectedPlannerRoot)}
+            disabled={!selectedPlannerRoot}
+            class="w-full px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+          >
+            Create Child
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <div class="flex flex-wrap gap-3 items-center">
+    <button
+      on:click={onExportBuckets}
+      class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors flex items-center gap-2"
+    >
+      {@html IconDownload}
+      Export Planner
+    </button>
+    {#if canEdit}
+      <label class="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium cursor-pointer transition-colors">
+        {@html IconUpload}
+        <span>Import Planner</span>
+        <input
+          type="file"
+          accept="application/json"
+          on:change={onImportBucketsFromFile}
+          class="hidden"
+        />
+      </label>
+    {/if}
+  </div>
+</section>

@@ -8,7 +8,6 @@
   import DashboardHomeView from "../components/DashboardHomeView.svelte";
   import FlowsView from "../components/FlowsView.svelte";
   import SearchView from "../components/SearchView.svelte";
-  import NewFlowView from "../components/NewFlowView.svelte";
   import UsersView from "../components/UsersView.svelte";
   import SettingsView from "../components/SettingsView.svelte";
   import CheckerView from "../components/CheckerView.svelte";
@@ -192,7 +191,6 @@
         note: ""
       };
       await refreshAll();
-      currentView = "flows";
     } catch (e) {
       error = e.message;
     }
@@ -891,16 +889,6 @@
     >
       Search
     </button>
-    {#if canEdit}
-      <button
-        class="px-3 py-1.5 rounded-md border {currentView === 'newFlow'
-          ? 'bg-orange-600 text-white'
-          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
-        on:click={() => (currentView = "newFlow")}
-      >
-        New Flow
-      </button>
-    {/if}
     {#if user?.role === "admin" || user?.role === "editor"}
       <button
         class="px-3 py-1.5 rounded-md border {currentView === 'users'
@@ -1086,11 +1074,13 @@
         bind:flowSortOrder
         {canEdit}
         {isAdmin}
+        {newFlow}
         onApplyFlowSort={applyFlowSort}
         onPrevFlowPage={prevFlowPage}
         onNextFlowPage={nextFlowPage}
         onToggleFlowLock={toggleFlowLock}
         onDeleteFlow={deleteFlow}
+        onCreateFlow={createFlow}
       />
     {/if}
 
@@ -1107,9 +1097,6 @@
       />
     {/if}
 
-    {#if currentView === "newFlow" && canEdit}
-      <NewFlowView {newFlow} onCreateFlow={createFlow} />
-    {/if}
 
     {#if currentView === "users" && (user?.role === "admin" || user?.role === "editor")}
       <UsersView {users} />
