@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: go-nmos-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: go_nmos
+    volumes:
+      - go_nmos_db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: go-nmos-mqtt
+    ports:
+      - "${MQTT_HOST_PORT:-1883}:1883"
+      - "${MQTT_WS_HOST_PORT:-9001}:9001"
+    volumes:
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  backend:
+    build:
+      context: ./backend
+    container_name: go-nmos-backend
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - db
+      - mqtt
+    volumes:
+      - ./logs:/tmp/go-nmos-logs
+    ports:
+      - "9090:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: go-nmos-frontend
+    depends_on:
+      - backend
+    ports:
+      - "4173:80"
+
+volumes:
+  go_nmos_db:
