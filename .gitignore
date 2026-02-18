@@ -1,0 +1,40 @@
+# Environment files
+.env
+*.env.local
+*.env.*.local
+
+# Logs
+logs/
+*.log
+/tmp/go-nmos-logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+frontend/dist/
+frontend/node_modules/
+backend/bin/
+
+# Test coverage
+*.out
+coverage/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Temporary files
+*.tmp
+*.temp

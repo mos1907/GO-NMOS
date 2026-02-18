@@ -2,6 +2,10 @@
 
 Production-oriented rewrite baseline of NMOS management stack using **Go + Svelte**.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
+[![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte)](https://svelte.dev/)
+
 ## Stack
 
 - Backend: Go 1.22, chi router, JWT auth, PostgreSQL (pgx)
@@ -420,6 +424,22 @@ Frontend uses Vite and reads API URL from environment. Default API endpoint: `ht
 - Verify Registry Query API URL is correct
 - Ensure registry is accessible from backend
 - Check registry supports IS-04 Query API (not just Node API)
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
+
+### Quick Contribution Steps
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Reporting Issues
+
+Found a bug or have a feature request? Please [open an issue](https://github.com/mos1907/GO-NMOS/issues).
 
 ## License
 
