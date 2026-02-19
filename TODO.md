@@ -8,11 +8,11 @@ Each item is a high-level feature; we can break them down further as we implemen
 
 ### 1. IS-04 / Registry & Query Enhancements
 
-- [ ] **Registry WebSocket feed (Query-style realtime)**  
+- [x] **Registry WebSocket feed (Query-style realtime)**  
   - Backend: WebSocket endpoint that streams internal NMOS registry changes (nodes/devices/flows/senders/receivers).  
   - Frontend: Small “Registry Events” panel on the dashboard showing latest registry changes.
 
-- [ ] **Registry health check**  
+- [x] **Registry health check**  
   - Backend: `/api/nmos/registry/health` that verifies connectivity to configured registry / nodes.  
   - Frontend: Compact status indicator (OK / WARN / DOWN) on dashboard or settings.
 
@@ -20,12 +20,12 @@ Each item is a high-level feature; we can break them down further as we implemen
 
 ### 2. IS-05 Deep Integration (Connection + SDP)
 
-- [ ] **Enhanced IS-05 view in Flow Details**  
+- [x] **Enhanced IS-05 view in Flow Details**  
   - Show a dedicated “IS-05 / Transport” section:  
     - Path A/B: IP/port with simple “ready / missing” badges.  
     - Transport protocol and inferred ST 2110 format (e.g. 2110-20/30/40) based on SDP.
 
-- [ ] **IS-05 Receiver state check**  
+- [x] **IS-05 Receiver state check**  
   - Backend: Endpoint to query a receiver’s active/staged connection state and map it back to a flow.  
   - Frontend: Button in Flow Details to “Check Receiver State” and show whether the receiver matches the selected flow.
 
