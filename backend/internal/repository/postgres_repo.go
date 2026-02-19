@@ -67,6 +67,51 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user models.User) e
 	return err
 }
 
+func (r *PostgresRepository) UpdateUser(ctx context.Context, username string, updates map[string]any) error {
+	if len(updates) == 0 {
+		return fmt.Errorf("no updates provided")
+	}
+
+	setParts := []string{}
+	args := []any{}
+	argPos := 1
+
+	if password, ok := updates["password"].(string); ok && password != "" {
+		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argPos))
+		args = append(args, password)
+		argPos++
+	}
+
+	if role, ok := updates["role"].(string); ok && role != "" {
+		if role != "admin" && role != "editor" && role != "viewer" {
+			return fmt.Errorf("invalid role: must be admin, editor, or viewer")
+		}
+		setParts = append(setParts, fmt.Sprintf("role = $%d", argPos))
+		args = append(args, role)
+		argPos++
+	}
+
+	if len(setParts) == 0 {
+		return fmt.Errorf("no valid updates provided")
+	}
+
+	args = append(args, username)
+	query := fmt.Sprintf(`UPDATE users SET %s WHERE username = $%d`, strings.Join(setParts, ", "), argPos)
+	_, err := r.pool.Exec(ctx, query, args...)
+	return err
+}
+
+func (r *PostgresRepository) DeleteUser(ctx context.Context, username string) error {
+	result, err := r.pool.Exec(ctx, `DELETE FROM users WHERE username = $1`, username)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
 func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error) {
 	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
 	query := fmt.Sprintf(`

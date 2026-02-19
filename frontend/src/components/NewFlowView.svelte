@@ -2,13 +2,27 @@
   let {
     newFlow,
     onCreateFlow,
+    onUpdateFlow = null,
     onClose,
     isOpen = false,
+    editingFlow = null, // If set, we're editing an existing flow
   } = $props();
 
-  function handleCreate() {
-    onCreateFlow?.();
-    onClose?.();
+  let isSubmitting = $state(false);
+
+  async function handleSubmit() {
+    if (isSubmitting) return;
+    isSubmitting = true;
+    try {
+      if (editingFlow) {
+        await onUpdateFlow?.();
+      } else {
+        await onCreateFlow?.();
+      }
+      onClose?.();
+    } finally {
+      isSubmitting = false;
+    }
   }
 
   function handleKeydown(e) {
@@ -16,14 +30,22 @@
       onClose?.();
     }
   }
+
+  let isEditMode = $derived(!!editingFlow);
+  let modalTitle = $derived(isEditMode ? "Edit Flow" : "Create New Flow");
+  let submitButtonText = $derived(
+    isSubmitting
+      ? (isEditMode ? "Updating..." : "Creating...")
+      : (isEditMode ? "Update Flow" : "Create Flow")
+  );
 </script>
 
 {#if isOpen}
   <!-- Backdrop -->
   <div
     class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
-    on:click={onClose}
-    on:keydown={handleKeydown}
+    onclick={onClose}
+    onkeydown={handleKeydown}
     role="dialog"
     aria-modal="true"
     aria-labelledby="new-flow-title"
@@ -31,13 +53,13 @@
     <!-- Modal -->
     <div
       class="bg-gray-900 border border-gray-800 rounded-xl shadow-2xl shadow-gray-900/40 w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-slide-in"
-      on:click|stopPropagation
+      onclick={(e) => e.stopPropagation()}
     >
       <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <h2 id="new-flow-title" class="text-xl font-bold text-gray-100">Create New Flow</h2>
+        <h2 id="new-flow-title" class="text-xl font-bold text-gray-100">{modalTitle}</h2>
         <button
-          on:click={onClose}
+          onclick={onClose}
           class="p-1.5 rounded-md text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
           aria-label="Close"
         >
@@ -157,22 +179,69 @@
               class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors resize-none"
             ></textarea>
           </div>
+
+          <!-- Alias Fields -->
+          <div class="md:col-span-2 border-t border-gray-800 pt-4">
+            <h3 class="text-sm font-semibold text-gray-200 mb-3">Alias Fields (Optional)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {#each Array(8) as _, i}
+                {@const aliasNum = i + 1}
+                {@const aliasKey = `alias_${aliasNum}`}
+                <div class="space-y-1">
+                  <label for={aliasKey} class="block text-xs font-medium text-gray-400">
+                    Alias {aliasNum}
+                  </label>
+                  <input
+                    id={aliasKey}
+                    type="text"
+                    bind:value={newFlow[aliasKey]}
+                    placeholder={`Alias ${aliasNum}...`}
+                    class="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <!-- User Fields -->
+          <div class="md:col-span-2 border-t border-gray-800 pt-4">
+            <h3 class="text-sm font-semibold text-gray-200 mb-3">User-Defined Fields (Optional)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {#each Array(8) as _, i}
+                {@const userNum = i + 1}
+                {@const userKey = `user_field_${userNum}`}
+                <div class="space-y-1">
+                  <label for={userKey} class="block text-xs font-medium text-gray-400">
+                    User Field {userNum}
+                  </label>
+                  <input
+                    id={userKey}
+                    type="text"
+                    bind:value={newFlow[userKey]}
+                    placeholder={`User field ${userNum}...`}
+                    class="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                </div>
+              {/each}
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Footer -->
       <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-800">
         <button
-          on:click={onClose}
+          onclick={onClose}
           class="px-4 py-2 rounded-md border border-gray-700 bg-gray-800 text-gray-200 text-sm font-medium hover:bg-gray-700 transition-colors"
         >
           Cancel
         </button>
         <button
-          on:click={handleCreate}
-          class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors"
+          onclick={handleSubmit}
+          disabled={isSubmitting}
+          class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
         >
-          Create Flow
+          {submitButtonText}
         </button>
       </div>
     </div>

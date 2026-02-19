@@ -19,81 +19,83 @@
   import SkeletonLoader from "../components/SkeletonLoader.svelte";
   import EmptyState from "../components/EmptyState.svelte";
 
-  export let token;
-  export let user;
-  export let onLogout;
+  let {
+    token,
+    user,
+    onLogout,
+  } = $props();
 
-  let currentView = "dashboard";
-  let loading = true;
-  let error = "";
-  let success = "";
+  let currentView = $state("dashboard");
+  let loading = $state(true);
+  let error = $state("");
+  let success = $state("");
 
-  let summary = { total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 };
-  let flows = [];
-  let flowLimit = 50;
-  let flowOffset = 0;
-  let flowTotal = 0;
-  let flowSortBy = "updated_at";
-  let flowSortOrder = "desc";
-  let users = [];
-  let settings = {};
-  let searchTerm = "";
-  let searchResults = [];
-  let searchLimit = 50;
-  let searchOffset = 0;
-  let searchTotal = 0;
-  let importing = false;
-  let nmosBaseUrl = "";
-  let nmosResult = null;
-  let nmosIS05Base = "";
-  let selectedNMOSFlow = null;
-  let selectedNMOSReceiver = null;
-  let nmosTakeBusy = false;
-  let checkerResult = null;
-  let automationJobs = [];
-  let addressMap = null;
-  let logsKind = "api";
-  let logsLines = [];
+  let summary = $state({ total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 });
+  let flows = $state([]);
+  let flowLimit = $state(50);
+  let flowOffset = $state(0);
+  let flowTotal = $state(0);
+  let flowSortBy = $state("updated_at");
+  let flowSortOrder = $state("desc");
+  let users = $state([]);
+  let settings = $state({});
+  let searchTerm = $state("");
+  let searchResults = $state([]);
+  let searchLimit = $state(50);
+  let searchOffset = $state(0);
+  let searchTotal = $state(0);
+  let importing = $state(false);
+  let nmosBaseUrl = $state("");
+  let nmosResult = $state(null);
+  let nmosIS05Base = $state("");
+  let selectedNMOSFlow = $state(null);
+  let selectedNMOSReceiver = $state(null);
+  let nmosTakeBusy = $state(false);
+  let checkerResult = $state(null);
+  let automationJobs = $state([]);
+  let addressMap = $state(null);
+  let logsKind = $state("api");
+  let logsLines = $state([]);
 
   // Internal NMOS registry (IS-04 style) state
-  let registryNodes = [];
-  let registryDevices = [];
-  let registrySenders = [];
-  let registryReceivers = [];
-  let selectedRegistryNodeId = "";
-  let selectedRegistryDeviceId = "";
+  let registryNodes = $state([]);
+  let registryDevices = $state([]);
+  let registrySenders = $state([]);
+  let registryReceivers = $state([]);
+  let selectedRegistryNodeId = $state("");
+  let selectedRegistryDeviceId = $state("");
 
   // NMOS Patch-style view state (sender/receiver selection)
-  let nmosNodes = [];
-  let showAddNodeModal = false;
-  let newNodeName = "";
-  let newNodeUrl = "";
-  let selectedSenderNodeId = "";
-  let selectedReceiverNodeId = "";
-  let senderNodeSenders = [];
-  let receiverNodeReceivers = [];
-  let selectedPatchSender = null;
-  let selectedPatchReceiver = null;
-  let nmosPatchStatus = "";
-  let nmosPatchError = "";
-  let senderFilterText = "";
-  let receiverFilterText = "";
-  let senderFormatFilter = "";
-  let receiverFormatFilter = "";
+  let nmosNodes = $state([]);
+  let showAddNodeModal = $state(false);
+  let newNodeName = $state("");
+  let newNodeUrl = $state("");
+  let selectedSenderNodeId = $state("");
+  let selectedReceiverNodeId = $state("");
+  let senderNodeSenders = $state([]);
+  let receiverNodeReceivers = $state([]);
+  let selectedPatchSender = $state(null);
+  let selectedPatchReceiver = $state(null);
+  let nmosPatchStatus = $state("");
+  let nmosPatchError = $state("");
+  let senderFilterText = $state("");
+  let receiverFilterText = $state("");
+  let senderFormatFilter = $state("");
+  let receiverFormatFilter = $state("");
   // RDS (Registry) connect modal state
-  let showConnectRDSModal = false;
-  let rdsQueryUrl = "";
-  let rdsDiscovering = false;
-  let rdsNodes = [];
-  let rdsSelectedIds = [];
-  let rdsError = "";
-  let plannerRoots = [];
-  let plannerChildren = [];
-  let selectedPlannerRoot = null;
-  let newPlannerParent = { parent_id: null, name: "", cidr: "", description: "", color: "" };
-  let newPlannerChild = { parent_id: null, name: "", cidr: "", description: "", color: "" };
+  let showConnectRDSModal = $state(false);
+  let rdsQueryUrl = $state("");
+  let rdsDiscovering = $state(false);
+  let rdsNodes = $state([]);
+  let rdsSelectedIds = $state([]);
+  let rdsError = $state("");
+  let plannerRoots = $state([]);
+  let plannerChildren = $state([]);
+  let selectedPlannerRoot = $state(null);
+  let newPlannerParent = $state({ parent_id: null, name: "", cidr: "", description: "", color: "" });
+  let newPlannerChild = $state({ parent_id: null, name: "", cidr: "", description: "", color: "" });
 
-  let newFlow = {
+  let newFlow = $state({
     display_name: "",
     multicast_ip: "",
     source_ip: "",
@@ -101,15 +103,33 @@
     flow_status: "active",
     availability: "available",
     transport_protocol: "RTP/UDP",
-    note: ""
-  };
+    note: "",
+    alias_1: "",
+    alias_2: "",
+    alias_3: "",
+    alias_4: "",
+    alias_5: "",
+    alias_6: "",
+    alias_7: "",
+    alias_8: "",
+    user_field_1: "",
+    user_field_2: "",
+    user_field_3: "",
+    user_field_4: "",
+    user_field_5: "",
+    user_field_6: "",
+    user_field_7: "",
+    user_field_8: "",
+  });
+
+  let editingFlow = $state(null);
 
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
   // Basit UI sürüm bilgisi (frontend build versiyonu)
   const uiVersion = "go-NMOS UI v0.2.0 (router beta)";
-  let showBuildModal = true;
+  let showBuildModal = $state(true);
 
   async function loadDashboard() {
     loading = true;
@@ -180,41 +200,128 @@
     try {
       await api("/flows", { method: "POST", token, body: newFlow });
       success = "Flow created successfully.";
-      newFlow = {
-        display_name: "",
-        multicast_ip: "",
-        source_ip: "",
-        port: 5004,
-        flow_status: "active",
-        availability: "available",
-        transport_protocol: "RTP/UDP",
-        note: ""
-      };
+      resetNewFlowForm();
       await refreshAll();
     } catch (e) {
       error = e.message;
     }
   }
 
-  async function toggleFlowLock(flow) {
+  async function updateFlow() {
+    if (!editingFlow) return;
     error = "";
     success = "";
+    try {
+      await api(`/flows/${editingFlow.id}`, {
+        method: "PATCH",
+        token,
+        body: newFlow,
+      });
+      success = "Flow updated successfully.";
+      editingFlow = null;
+      resetNewFlowForm();
+      await refreshAll();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  function resetNewFlowForm() {
+    newFlow = {
+      display_name: "",
+      multicast_ip: "",
+      source_ip: "",
+      port: 5004,
+      flow_status: "active",
+      availability: "available",
+      transport_protocol: "RTP/UDP",
+      note: "",
+      alias_1: "",
+      alias_2: "",
+      alias_3: "",
+      alias_4: "",
+      alias_5: "",
+      alias_6: "",
+      alias_7: "",
+      alias_8: "",
+      user_field_1: "",
+      user_field_2: "",
+      user_field_3: "",
+      user_field_4: "",
+      user_field_5: "",
+      user_field_6: "",
+      user_field_7: "",
+      user_field_8: "",
+    };
+  }
+
+  function openEditFlowModal(flow) {
+    if (!flow) return;
+    editingFlow = flow;
+    // Copy flow data to newFlow for editing
+    newFlow = {
+      display_name: flow.display_name || "",
+      multicast_ip: flow.multicast_ip || "",
+      source_ip: flow.source_ip || "",
+      port: flow.port || 5004,
+      flow_status: flow.flow_status || "active",
+      availability: flow.availability || "available",
+      transport_protocol: flow.transport_protocol || "",
+      note: flow.note || "",
+      alias_1: flow.alias_1 || "",
+      alias_2: flow.alias_2 || "",
+      alias_3: flow.alias_3 || "",
+      alias_4: flow.alias_4 || "",
+      alias_5: flow.alias_5 || "",
+      alias_6: flow.alias_6 || "",
+      alias_7: flow.alias_7 || "",
+      alias_8: flow.alias_8 || "",
+      user_field_1: flow.user_field_1 || "",
+      user_field_2: flow.user_field_2 || "",
+      user_field_3: flow.user_field_3 || "",
+      user_field_4: flow.user_field_4 || "",
+      user_field_5: flow.user_field_5 || "",
+      user_field_6: flow.user_field_6 || "",
+      user_field_7: flow.user_field_7 || "",
+      user_field_8: flow.user_field_8 || "",
+    };
+  }
+
+  async function checkFlowNMOS(flowId, baseUrl) {
+    error = "";
+    try {
+      const result = await api(`/flows/${flowId}/nmos/check?base_url=${encodeURIComponent(baseUrl)}`, {
+        token,
+      });
+      return result;
+    } catch (e) {
+      throw new Error(e.message || "Failed to check flow");
+    }
+  }
+
+  async function toggleFlowLock(flow) {
+    error = "";
+    success = ""; // Clear success message - popup will show instead
     try {
       const result = await api(`/flows/${flow.id}/lock`, {
         method: "POST",
         token,
         body: { locked: !flow.locked }
       });
-      flow.locked = result.locked;
-      success = result.locked ? "Flow locked." : "Flow unlocked.";
+      // Update flow object
+      const updatedFlow = { ...flow, locked: result.locked };
+      // Don't set success message - popup will show instead
       await loadFlows().then((data) => {
         flows = data;
       });
       await api("/flows/summary", { token }).then((s) => {
         summary = s;
       });
+      // Return result for popup display
+      return { locked: result.locked, flow: updatedFlow };
     } catch (e) {
       error = e.message;
+      return null;
     }
   }
 
@@ -268,6 +375,44 @@
         body: { value: settings[key] ?? "" }
       });
       success = `Setting '${key}' updated.`;
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function updateUser(username, formData) {
+    error = "";
+    success = "";
+    try {
+      const body = {};
+      if (formData.password) {
+        body.password = formData.password;
+      }
+      if (formData.role) {
+        body.role = formData.role;
+      }
+      await api(`/users/${username}`, {
+        method: "PATCH",
+        token,
+        body,
+      });
+      success = `User '${username}' updated successfully.`;
+      await loadUsers();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function deleteUser(username) {
+    error = "";
+    success = "";
+    try {
+      await api(`/users/${username}`, {
+        method: "DELETE",
+        token,
+      });
+      success = `User '${username}' deleted successfully.`;
+      await loadUsers();
     } catch (e) {
       error = e.message;
     }
@@ -851,13 +996,13 @@
     <div class="flex items-center gap-2">
       <button
         class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium transition-colors border border-gray-700"
-        on:click={refreshAll}
+        onclick={refreshAll}
       >
         Refresh
       </button>
       <button
         class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold transition-colors"
-        on:click={onLogout}
+        onclick={onLogout}
       >
         Logout
       </button>
@@ -869,7 +1014,7 @@
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 {currentView === 'dashboard'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "dashboard")}
+      onclick={() => (currentView = "dashboard")}
     >
       Dashboard
     </button>
@@ -877,7 +1022,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'flows'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "flows")}
+      onclick={() => (currentView = "flows")}
     >
       Flows
     </button>
@@ -885,7 +1030,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'search'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "search")}
+      onclick={() => (currentView = "search")}
     >
       Search
     </button>
@@ -894,7 +1039,7 @@
         class="px-3 py-1.5 rounded-md border {currentView === 'users'
           ? 'bg-orange-600 text-white'
           : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'}"
-        on:click={() => (currentView = "users")}
+        onclick={() => (currentView = "users")}
       >
         Users
       </button>
@@ -903,7 +1048,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmos'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "nmos")}
+      onclick={() => (currentView = "nmos")}
     >
       NMOS
     </button>
@@ -911,7 +1056,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'topology'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => {
+      onclick={() => {
         currentView = "topology";
         loadNMOSRegistry();
       }}
@@ -922,7 +1067,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmosPatch'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "nmosPatch")}
+      onclick={() => (currentView = "nmosPatch")}
     >
       NMOS Patch
     </button>
@@ -930,7 +1075,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'checker'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "checker")}
+      onclick={() => (currentView = "checker")}
     >
       Checker
     </button>
@@ -939,7 +1084,7 @@
         class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'automation'
           ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
           : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-        on:click={() => (currentView = "automation")}
+        onclick={() => (currentView = "automation")}
       >
         Automation
       </button>
@@ -948,7 +1093,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'planner'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "planner")}
+      onclick={() => (currentView = "planner")}
     >
       Planner
     </button>
@@ -956,7 +1101,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'addressMap'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "addressMap")}
+      onclick={() => (currentView = "addressMap")}
     >
       Address Map
     </button>
@@ -965,7 +1110,7 @@
         class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'portExplorer'
           ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
           : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-        on:click={() => (currentView = "portExplorer")}
+        onclick={() => (currentView = "portExplorer")}
       >
         Port Explorer
       </button>
@@ -973,7 +1118,7 @@
         class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'logs'
           ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
           : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-        on:click={() => {
+        onclick={() => {
           currentView = "logs";
           loadLogs();
         }}
@@ -985,7 +1130,7 @@
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'settings'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      on:click={() => (currentView = "settings")}
+      onclick={() => (currentView = "settings")}
     >
       Settings
     </button>
@@ -1011,7 +1156,7 @@
           </div>
           <button
             class="shrink-0 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white w-7 h-7 flex items-center justify-center text-sm border border-gray-700"
-            on:click={() => (showBuildModal = false)}
+            onclick={() => (showBuildModal = false)}
             aria-label="Close"
           >
             ✕
@@ -1020,7 +1165,7 @@
         <div class="flex justify-end">
           <button
             class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold transition-colors"
-            on:click={() => (showBuildModal = false)}
+            onclick={() => (showBuildModal = false)}
           >
             Close
           </button>
@@ -1081,6 +1226,10 @@
         onToggleFlowLock={toggleFlowLock}
         onDeleteFlow={deleteFlow}
         onCreateFlow={createFlow}
+        onEditFlow={openEditFlowModal}
+        onUpdateFlow={updateFlow}
+        onCheckFlow={checkFlowNMOS}
+        {editingFlow}
       />
     {/if}
 
@@ -1099,7 +1248,12 @@
 
 
     {#if currentView === "users" && (user?.role === "admin" || user?.role === "editor")}
-      <UsersView {users} />
+      <UsersView
+        {users}
+        {isAdmin}
+        onUpdateUser={updateUser}
+        onDeleteUser={deleteUser}
+      />
     {/if}
 
     {#if currentView === "settings"}
@@ -1253,7 +1407,7 @@
     {/if}
 
     {#if currentView === "logs" && isAdmin}
-      <LogsView bind:logsKind {logsLines} onLoadLogs={loadLogs} />
+      <LogsView bind:logsKind {logsLines} {token} onLoadLogs={loadLogs} />
     {/if}
   {/if}
   </div>

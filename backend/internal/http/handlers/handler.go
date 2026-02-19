@@ -77,6 +77,8 @@ func (h *Handler) Router() http.Handler {
 
 		api.With(requireRole("editor", "admin")).Get("/users", h.ListUsers)
 		api.With(requireRole("admin")).Post("/users", h.CreateUser)
+		api.With(requireRole("admin")).Patch("/users/{username}", h.UpdateUser)
+		api.With(requireRole("admin")).Delete("/users/{username}", h.DeleteUser)
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/discover", h.DiscoverNMOS)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/discover", h.DiscoverNMOS)

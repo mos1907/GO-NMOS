@@ -10,6 +10,8 @@ type Repository interface {
 	GetUserByUsername(ctx context.Context, username string) (*models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
 	CreateUser(ctx context.Context, user models.User) error
+	UpdateUser(ctx context.Context, username string, updates map[string]any) error
+	DeleteUser(ctx context.Context, username string) error
 
 	ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error)
 	CountFlows(ctx context.Context) (int, error)

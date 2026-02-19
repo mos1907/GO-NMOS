@@ -35,7 +35,7 @@
   <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
     <div>
       <h3 class="text-sm font-semibold text-gray-100">Latest Flows</h3>
-      <p class="text-[11px] text-gray-400 mt-0.5">Son eklenen/ güncellenen akışların özeti</p>
+      <p class="text-[11px] text-gray-400 mt-0.5">Summary of recently added/updated flows</p>
     </div>
     <span class="text-[11px] text-gray-300 bg-slate-900 px-2 py-0.5 rounded-full border border-gray-700">
       Showing {Math.min(flows.length, 12)} of {flowTotal}
