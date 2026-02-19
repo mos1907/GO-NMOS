@@ -1,7 +1,7 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
-# Lock dosyası ile package.json tam senkron olmadığı için container içinde doğrudan npm install kullanıyoruz.
+# We rely on npm install inside the container because the lock file may not always be fully in sync with package.json.
 RUN npm install
 COPY . .
 RUN npm run build

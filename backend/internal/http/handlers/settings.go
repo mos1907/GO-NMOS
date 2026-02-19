@@ -14,6 +14,7 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		"anonymous_access",
 		"flow_lock_role",
 		"hard_delete_enabled",
+		"sdn_controller_url",
 		// System / timing parameters (IS-09-inspired)
 		"system_ptp_domain",
 		"system_ptp_gmid",

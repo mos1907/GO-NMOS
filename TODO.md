@@ -1,95 +1,129 @@
-## GO-NMOS Roadmap / TODO List
+## GO-NMOS Roadmap v2
 
-This document tracks potential next steps to evolve **GO-NMOS** into a more complete ST 2110 / NMOS controller, using the AMWA NMOS article (`https://muratdemirci.com.tr/amwa-nmos/`) and other ecosystem patterns as inspiration.
+This roadmap is a fresh starting point for evolving **GO-NMOS** from a useful controller into a more complete, production-ready NMOS control platform.
 
-Each item is a high-level feature; we can break them down further as we implement.
+The previous phases (basic IS-04/05/08/09 integration, diagnostics panels, SDN ping, migration checklist, etc.) are treated as **v1 foundations**. Below we focus on what is still missing for a robust end‑to‑end NMOS system: security, completeness of specs, observability, automation, and operator UX.
 
----
-
-### 1. IS-04 / Registry & Query Enhancements
-
-- [x] **Registry WebSocket feed (Query-style realtime)**  
-  - Backend: WebSocket endpoint that streams internal NMOS registry changes (nodes/devices/flows/senders/receivers).  
-  - Frontend: Small “Registry Events” panel on the dashboard showing latest registry changes.
-
-- [x] **Registry health check**  
-  - Backend: `/api/nmos/registry/health` that verifies connectivity to configured registry / nodes.  
-  - Frontend: Compact status indicator (OK / WARN / DOWN) on dashboard or settings.
+Each item is intentionally high-level; we can break them down into implementation tasks as we go.
 
 ---
 
-### 2. IS-05 Deep Integration (Connection + SDP)
+### 1. NMOS Spec Coverage & Compliance
 
-- [x] **Enhanced IS-05 view in Flow Details**  
-  - Show a dedicated “IS-05 / Transport” section:  
-    - Path A/B: IP/port with simple “ready / missing” badges.  
-    - Transport protocol and inferred ST 2110 format (e.g. 2110-20/30/40) based on SDP.
+- [ ] **IS-04 maturity & compatibility**
+  - Expose more of the internal registry (tags, caps, version negotiation) to the UI.
+  - Add basic conformance/self-checks against different IS-04 registry versions.
 
-- [x] **IS-05 Receiver state check**  
-  - Backend: Endpoint to query a receiver’s active/staged connection state and map it back to a flow.  
-  - Frontend: Button in Flow Details to “Check Receiver State” and show whether the receiver matches the selected flow.
+- [ ] **IS-05 advanced workflows**
+  - Add support for staged/activation modes, scheduled activations and bulk patch (multiple receivers at once).
+  - Provide a “Connection history” view per receiver (who connected what, when).
 
----
+- [ ] **IS-08 audio mapping (first real implementation)**
+  - Backend: minimal IS-08 controller operations for a subset of devices (read map, simple remap).
+  - UI: per-flow/per-receiver audio channel map preview and a simple “swap / mute / mono-sum” editor.
 
-### 3. IS-08 / Audio Channel Mapping (Future Hooks)
+- [ ] **IS-07 (Events & Tally) hooks**
+  - Add a small IS-07 consumer capable of subscribing to event sources relevant to routing (tally, GPI, monitoring).
+  - UI: lightweight “Events” pane with filters and correlation to flows/senders/receivers.
 
-- [x] **Audio metadata fields on flows (using user_field_1 / user_field_2)**  
-  - Reuse `user_field_1` as **Audio Layout** and `user_field_2` as **Audio Program Name** to prepare for IS-08 without changing the DB schema.
-
-- [x] **Audio Mapping placeholder UI**  
-  - Flow Details shows Audio Layout / Program Name in the advanced section, and the New Flow modal exposes them with clear labels.
-
----
-
-### 4. IS-09 / Timing & System Parameters
-
-- [x] **System parameters backend (IS-09-inspired)**  
-  - Use `settings` keys (`system_ptp_domain`, `system_ptp_gmid`, `system_expected_is04`, `system_expected_is05`) and expose them via `GET /api/system`.
-
-- [x] **Timing / System card on dashboard**  
-  - Dashboard shows a “System / Timing” card with PTP domain, GMID and expected IS-04/IS-05 versions.
+- [ ] **IS-09 refinements**
+  - Allow editing key system parameters from the UI (with role-based protection).
+  - Add validation to ensure consistency between configured expectations (IS-04/05 versions) and discovered nodes.
 
 ---
 
-### 5. Diagnostics & Troubleshooting (Health Panel)
+### 2. Security & Access Control (BCP‑003 Inspired)
 
-- [x] **Detailed health endpoint**  
-  - Backend: `/api/health/detail` summarising:  
-    - DB, MQTT, registry (and can be extended with RDS, Port Explorer, NMOS node reachability).  
-    - Basic status & error messages.
+- [ ] **API hardening & auth cleanup**
+  - Review all endpoints and permissions; introduce clearer roles (viewer / operator / engineer / admin).
+  - Add optional session timeout and refresh logic on the frontend.
 
-- [x] **Diagnostics panel in UI**  
-  - Frontend: “Diagnostics / Quick Check” section with buttons like:  
-    - Check DB, Check MQTT, Check Registry, Check Node at URL.  
-  - Display results as colored badges + timestamp, to mirror the troubleshooting patterns from the blog.
+- [ ] **TLS / HTTPS first-class support**
+  - Make HTTPS configuration easier (certs, keys, auto-redirect from HTTP).
+  - Provide a simple “Security status” card (HTTP vs HTTPS, weak defaults warnings).
 
----
-
-### 6. IS-06 / SDN Controller Hooks
-
-- [ ] **SDN controller configuration**  
-  - Backend: add `SDN_CONTROLLER_URL` config and a simple `/api/sdn/ping` endpoint to verify reachability.
-
-- [ ] **Network Controller section in Settings**  
-  - Frontend: small “Network Controller (IS-06)” box in Settings with URL field + “Ping” button and status indicator.
+- [ ] **BCP‑003‑style integration plan**
+  - Design how GO-NMOS would talk to secured registries/nodes (tokens, CA trust, certificates) even if not fully implemented yet.
+  - Add placeholders in config/settings for auth server URLs, JWKS, certificate store, etc.
 
 ---
 
-### 7. SDI → NMOS Migration Aids
+### 3. Observability, Monitoring & Metrics
 
-- [ ] **Migration checklist UI (Ops-focused)**  
-  - Frontend: a “Migration / Checklist” view that turns the SDI→NMOS steps from the blog into a simple interactive checklist.
+- [ ] **Structured logging & log search**
+  - Standardise backend logs (JSON, correlation IDs, request IDs).
+  - Frontend: add filters in Logs view (by component, severity, correlation ID).
 
-- [ ] **Documentation cross-links**  
-  - README / Help section: link clearly to the detailed AMWA NMOS article for deep-dive architecture and operations guidance.
+- [ ] **Metrics & dashboards**
+  - Expose Prometheus metrics (requests, error rates, flow operations, MQTT/WS stats).
+  - Provide example Grafana dashboards and a short “Operations” section in the docs.
+
+- [ ] **Alerting hooks**
+  - Emit basic alerts (webhook / email / Slack-style placeholder) for key conditions:
+    - Registry down / empty, MQTT disconnected, automation failures, repeated NMOS errors.
 
 ---
 
-### 8. Nice-to-Have UX / Polish Ideas
+### 4. Topology, Routing & Automation
 
-- [ ] **Flow edit UX refinements**  
+- [ ] **Topology view enhancements**
+  - Improve the Topology view with grouping (by site, rack, device type).
+  - Add simple path visualisation (sender → receiver → destination network segment).
+
+- [ ] **Policy-based routing**
+  - Allow definition of simple policies (preferred paths, forbidden paths, redundancy groups).
+  - Integrate these checks into TAKE / Patch operations with clear warnings.
+
+- [ ] **Deeper SDN / IS‑06 integration**
+  - Move beyond `/sdn/ping` to at least one end-to-end example:
+    - Query SDN topology, list paths, and show how a flow → SDN route mapping would look.
+
+- [ ] **Automation playbooks**
+  - Define reusable “playbooks” (e.g. failover to backup sender, swap studio layouts, maintenance reroute).
+  - Attach them to buttons in the UI and cron-like schedules in automation settings.
+
+---
+
+### 5. Operator UX & Workflows
+
+- [ ] **Flow edit UX refinements**
   - Group advanced ST 2110 / NMOS fields behind collapsible sections in the edit modal (basic vs advanced).
+  - Provide presets (e.g. “2110-20 video HD”, “2110-30 audio 2.0”, “2110-30 audio 5.1”).
 
-- [ ] **Better empty/error states around NMOS / RDS / Port Explorer**  
-  - Tailor error messages and “no data” screens to common real-world networking and NMOS misconfigurations described in the blog.
+- [ ] **Contextual “How to fix this” hints**
+  - Around NMOS / RDS / Port Explorer and diagnostics, add short hints based on common field issues (from the blog).
+  - Link to the Migration and Diagnostics sections when relevant.
+
+- [ ] **Multi-panel layouts & pinning**
+  - Allow pinning a flow / sender / receiver to a side panel while navigating other views.
+  - Make it easy to compare two flows or two receivers side by side.
+
+---
+
+### 6. Deployment, Scalability & Multi‑Tenancy
+
+- [ ] **Profiles for small vs large systems**
+  - Provide “single node lab”, “small facility”, and “large facility” example configs (DB sizing, MQTT, registry expectations).
+
+- [ ] **High availability outline**
+  - Document how to run GO-NMOS in an HA fashion (DB, MQTT, registry) even if HA management is external (Kubernetes / docker swarm).
+
+- [ ] **Multi‑tenant / multi‑site concepts**
+  - Design (even if not fully implement) how multiple logical sites or tenants could be represented (tags, namespaces, site IDs).
+
+---
+
+### 7. Testing, Tooling & Documentation
+
+- [ ] **Deeper automated tests**
+  - Add API-level tests for NMOS interactions, health checks, and critical routing workflows.
+  - Add basic frontend component tests for the most important views (Flows, Dashboard, Migration).
+
+- [ ] **Developer & operator documentation**
+  - Extend README and add a dedicated `docs/` folder:
+    - Quickstart, architecture overview, NMOS spec mapping, operations cookbook.
+
+- [ ] **Interoperability test plan**
+  - Define how to test GO-NMOS against popular reference registries/nodes.
+  - Keep a short “interop matrix” documenting what has been tested.
 

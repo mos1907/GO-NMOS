@@ -7,6 +7,10 @@
     onSaveSetting,
     onExportFlows,
     onImportFlowsFromFile,
+    sdnPingLoading = false,
+    sdnPingError = "",
+    sdnPingResult = null,
+    onPingSDN,
   } = $props();
 
   let savingKey = $state("");
@@ -48,7 +52,7 @@
           />
           {#if isAdmin}
             <button
-              on:click={() => handleSave("api_base_url")}
+              onclick={() => handleSave("api_base_url")}
               disabled={savingKey === "api_base_url"}
               class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
@@ -79,7 +83,7 @@
           />
           {#if isAdmin}
             <button
-              on:click={() => handleSave("anonymous_access")}
+              onclick={() => handleSave("anonymous_access")}
               disabled={savingKey === "anonymous_access"}
               class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
@@ -112,7 +116,7 @@
           </select>
           {#if isAdmin}
             <button
-              on:click={() => handleSave("flow_lock_role")}
+              onclick={() => handleSave("flow_lock_role")}
               disabled={savingKey === "flow_lock_role"}
               class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
@@ -144,7 +148,7 @@
           </select>
           {#if isAdmin}
             <button
-              on:click={() => handleSave("hard_delete_enabled")}
+              onclick={() => handleSave("hard_delete_enabled")}
               disabled={savingKey === "hard_delete_enabled"}
               class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
             >
@@ -164,10 +168,78 @@
   </div>
 
   <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <h3 class="text-lg font-semibold text-gray-100 mb-4">Network Controller (IS-06)</h3>
+    <div class="space-y-3">
+      <div class="space-y-2">
+        <label for="sdn_controller_url" class="block text-sm font-medium text-gray-300">
+          SDN Controller URL
+        </label>
+        <div class="flex gap-2">
+          <input
+            id="sdn_controller_url"
+            type="text"
+            bind:value={settings.sdn_controller_url}
+            placeholder="http://sdn-controller:port/health"
+            class="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+          />
+          {#if isAdmin}
+            <button
+              onclick={() => handleSave("sdn_controller_url")}
+              disabled={savingKey === "sdn_controller_url"}
+              class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+            >
+              {#if savingKey === "sdn_controller_url"}
+                Saving...
+              {:else if saveSuccess === "sdn_controller_url"}
+                ✓ Saved
+              {:else}
+                Save
+              {/if}
+            </button>
+          {/if}
+        </div>
+        <p class="text-xs text-gray-500">
+          Base URL of your SDN / Network Controller. This is used by the ping check below.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-between pt-2 border-t border-gray-800 mt-2">
+        <div class="space-y-1">
+          <p class="text-sm font-medium text-gray-200">Ping Controller</p>
+          <p class="text-xs text-gray-500">
+            Verify that the SDN controller is reachable from GO-NMOS.
+          </p>
+        </div>
+        <button
+          class="px-3 py-1.5 rounded-md border border-sky-700 bg-sky-900 text-sky-100 hover:bg-sky-800 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-medium"
+          disabled={sdnPingLoading || !onPingSDN}
+          onclick={() => onPingSDN?.()}
+        >
+          {sdnPingLoading ? "Pinging..." : "Ping"}
+        </button>
+      </div>
+
+      {#if sdnPingError}
+        <p class="text-xs text-red-400 mt-1">Error: {sdnPingError}</p>
+      {:else if sdnPingResult}
+        <div class="mt-2 flex items-center justify-between text-xs">
+          <span class="text-gray-300">
+            {sdnPingResult.url} →
+            {sdnPingResult.httpCode} ({sdnPingResult.status})
+          </span>
+          <span class="text-gray-400 ml-2">
+            {sdnPingResult.latency}
+          </span>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
     <h3 class="text-lg font-semibold text-gray-100 mb-4">Backup & Restore</h3>
     <div class="flex flex-wrap gap-3 items-center">
       <button
-        on:click={onExportFlows}
+        onclick={onExportFlows}
         class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors flex items-center gap-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -184,7 +256,7 @@
           <input
             type="file"
             accept="application/json"
-            on:change={onImportFlowsFromFile}
+            onchange={onImportFlowsFromFile}
             disabled={importing}
             class="hidden"
           />

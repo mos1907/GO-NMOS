@@ -42,7 +42,7 @@
         {:else}
           {#each safePlannerRoots as root}
             <button
-              on:click={() => onSelectPlannerRoot?.(root)}
+              onclick={() => onSelectPlannerRoot?.(root)}
               class="w-full text-left px-3 py-2 rounded-md border transition-all duration-150 {selectedPlannerRoot && selectedPlannerRoot.id === root.id
                 ? 'bg-orange-600/20 border-orange-600 text-white'
                 : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700 hover:border-gray-600'}"
@@ -109,14 +109,14 @@
                     <td class="px-3 py-2">
                       <div class="flex gap-1.5">
                         <button
-                          on:click={() => onPlannerQuickEdit?.(item)}
+                          onclick={() => onPlannerQuickEdit?.(item)}
                           class="px-2.5 py-1 rounded-md border border-gray-700 bg-gray-800 text-[11px] text-gray-200 hover:bg-gray-700 transition-colors"
                         >
                           Edit
                         </button>
                         {#if isAdmin}
                           <button
-                            on:click={() => onPlannerDelete?.(item)}
+                            onclick={() => onPlannerDelete?.(item)}
                             class="px-2.5 py-1 rounded-md border border-red-800 bg-red-900/60 text-[11px] text-red-200 hover:bg-red-900 transition-colors"
                           >
                             Delete
@@ -173,7 +173,7 @@
             />
           </div>
           <button
-            on:click={onCreatePlannerParent}
+            onclick={onCreatePlannerParent}
             class="w-full px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors"
           >
             Create Parent
@@ -218,7 +218,7 @@
             />
           </div>
           <button
-            on:click={() => onCreatePlannerChild?.(selectedPlannerRoot)}
+            onclick={() => onCreatePlannerChild?.(selectedPlannerRoot)}
             disabled={!selectedPlannerRoot}
             class="w-full px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
           >
@@ -231,7 +231,7 @@
 
   <div class="flex flex-wrap gap-3 items-center">
     <button
-      on:click={onExportBuckets}
+      onclick={onExportBuckets}
       class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors flex items-center gap-2"
     >
       {@html IconDownload}
@@ -244,7 +244,7 @@
         <input
           type="file"
           accept="application/json"
-          on:change={onImportBucketsFromFile}
+          onchange={onImportBucketsFromFile}
           class="hidden"
         />
       </label>

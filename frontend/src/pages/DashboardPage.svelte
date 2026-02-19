@@ -13,6 +13,7 @@
   import CheckerView from "../components/CheckerView.svelte";
   import AutomationJobsView from "../components/AutomationJobsView.svelte";
   import PlannerView from "../components/PlannerView.svelte";
+  import MigrationChecklistView from "../components/MigrationChecklistView.svelte";
   import AddressMapView from "../components/AddressMapView.svelte";
   import LogsView from "../components/LogsView.svelte";
   import PortExplorerView from "../components/PortExplorerView.svelte";
@@ -70,6 +71,14 @@
   let nodeCheckLoading = $state(false);
   let nodeCheckError = $state("");
   let nodeCheckResult = $state(null);
+
+  let sdnPingLoading = $state(false);
+  let sdnPingError = $state("");
+  let sdnPingResult = $state(null);
+
+  function openMigrationBlog() {
+    window.open("https://muratdemirci.com.tr/amwa-nmos/", "_blank", "noopener,noreferrer");
+  }
 
   // Internal NMOS registry (IS-04 style) state
   let registryNodes = $state([]);
@@ -142,7 +151,7 @@
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
-  // Basit UI sürüm bilgisi (frontend build versiyonu)
+  // Simple UI version label (frontend build version)
   const uiVersion = "go-NMOS UI v0.2.0 (router beta)";
   let showBuildModal = $state(true);
 
@@ -218,6 +227,28 @@
       nodeCheckError = e.message;
     } finally {
       nodeCheckLoading = false;
+    }
+  }
+
+  async function pingSDNController() {
+    sdnPingError = "";
+    sdnPingResult = null;
+    sdnPingLoading = true;
+    try {
+      const body = {};
+      if (settings.sdn_controller_url) {
+        body.url = settings.sdn_controller_url;
+      }
+      const res = await api("/sdn/ping", {
+        method: "POST",
+        token,
+        body,
+      });
+      sdnPingResult = res;
+    } catch (e) {
+      sdnPingError = e.message;
+    } finally {
+      sdnPingLoading = false;
     }
   }
 
@@ -1265,6 +1296,14 @@
       Planner
     </button>
     <button
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'migration'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+      onclick={() => (currentView = "migration")}
+    >
+      Migration
+    </button>
+    <button
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'addressMap'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
@@ -1455,6 +1494,10 @@
         onSaveSetting={saveSetting}
         onExportFlows={exportFlows}
         onImportFlowsFromFile={importFlowsFromFile}
+        {sdnPingLoading}
+        {sdnPingError}
+        {sdnPingResult}
+        onPingSDN={pingSDNController}
       />
     {/if}
 
@@ -1586,6 +1629,10 @@
         onExportBuckets={exportBuckets}
         onImportBucketsFromFile={importBucketsFromFile}
       />
+    {/if}
+
+    {#if currentView === "migration"}
+      <MigrationChecklistView onOpenBlog={openMigrationBlog} />
     {/if}
 
     {#if currentView === "addressMap"}
