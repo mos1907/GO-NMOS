@@ -53,12 +53,12 @@ Each item is a high-level feature; we can break them down further as we implemen
 
 ### 5. Diagnostics & Troubleshooting (Health Panel)
 
-- [ ] **Detailed health endpoint**  
+- [x] **Detailed health endpoint**  
   - Backend: `/api/health/detail` summarising:  
-    - DB, MQTT, registry, RDS, Port Explorer, NMOS node reachability.  
+    - DB, MQTT, registry (and can be extended with RDS, Port Explorer, NMOS node reachability).  
     - Basic status & error messages.
 
-- [ ] **Diagnostics panel in UI**  
+- [x] **Diagnostics panel in UI**  
   - Frontend: “Diagnostics / Quick Check” section with buttons like:  
     - Check DB, Check MQTT, Check Registry, Check Node at URL.  
   - Display results as colored badges + timestamp, to mirror the troubleshooting patterns from the blog.
