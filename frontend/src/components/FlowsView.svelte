@@ -559,6 +559,15 @@
                 </p>
               </div>
 
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Audio Layout (IS-08 hook)</p>
+                <p class="text-sm text-gray-300">{detailFlow.user_field_1 || "-"}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Audio Program Name</p>
+                <p class="text-sm text-gray-300">{detailFlow.user_field_2 || "-"}</p>
+              </div>
+
               <div class="col-span-2 flex flex-wrap items-center gap-2 mt-1">
                 <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium bg-slate-900 text-slate-100 border border-slate-700">
                   Transport: {detailFlow.transport_protocol || "RTP/UDP"}

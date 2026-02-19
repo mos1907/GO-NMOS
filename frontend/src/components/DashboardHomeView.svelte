@@ -6,13 +6,29 @@
   export let flows = [];
   export let flowTotal = 0;
   export let onCreateFlow = null;
+  export let systemInfo = null;
   export let realtimeEvents = [];
   export let registryEvents = [];
   export let registryHealth = null;
   export let automationSummary = null;
+
+  // Diagnostics / Health panel
+  export let healthDetail = null;
+  export let healthLoading = false;
+  export let healthError = "";
+  export let lastHealthLoadedAt = "";
+  export let onRunHealthDetail = null;
+
+  // Diagnostics: Check Node at URL
+  export let nodeCheckUrl = "";
+  export let nodeCheckLoading = false;
+  export let nodeCheckError = "";
+  export let nodeCheckResult = null;
+  export let onNodeUrlChange = null;
+  export let onRunNodeCheck = null;
 </script>
 
-<section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+<section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-3 mb-4">
   <div class="rounded-xl border border-gray-800 bg-gray-900 px-3 py-3 shadow-sm">
     <p class="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Total</p>
     <p class="mt-1 text-2xl font-semibold text-gray-100">{summary.total}</p>
@@ -32,6 +48,19 @@
   <div class="rounded-xl border border-sky-700 bg-sky-950 px-3 py-3 shadow-sm">
     <p class="text-[11px] text-sky-300 font-medium uppercase tracking-wide">Maintenance</p>
     <p class="mt-1 text-2xl font-semibold text-sky-100">{summary.maintenance}</p>
+  </div>
+  <div class="rounded-xl border border-indigo-700 bg-indigo-950 px-3 py-3 shadow-sm">
+    <p class="text-[11px] text-indigo-300 font-medium uppercase tracking-wide">System / Timing</p>
+    {#if systemInfo}
+      <div class="mt-1 text-[11px] text-indigo-100 space-y-0.5">
+        <div>PTP Domain: <span class="font-semibold">{systemInfo.ptp_domain || "-"}</span></div>
+        <div>GMID: <span class="font-semibold break-all">{systemInfo.ptp_gmid || "-"}</span></div>
+        <div>IS-04: <span class="font-semibold">{systemInfo.expected_is04 || "-"}</span></div>
+        <div>IS-05: <span class="font-semibold">{systemInfo.expected_is05 || "-"}</span></div>
+      </div>
+    {:else}
+      <p class="mt-1 text-[11px] text-indigo-100/80">No system parameters configured.</p>
+    {/if}
   </div>
   <div class="rounded-xl border border-purple-700 bg-purple-950 px-3 py-3 shadow-sm md:col-span-2">
     <p class="text-[11px] text-purple-300 font-medium uppercase tracking-wide">Automation / Checks</p>
@@ -118,9 +147,6 @@
 </section>
 
 <section class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-  <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm md:col-span-2">
-    <!-- existing Latest Flows table kept as-is above -->
-  </div>
   <div class="space-y-3">
     <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
@@ -209,6 +235,133 @@
             {/each}
           </ul>
         {/if}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-100">Diagnostics / Quick Check</h3>
+          <p class="text-[11px] text-gray-400 mt-0.5">One-click backend health snapshot</p>
+        </div>
+        <button
+          class="text-[11px] px-2 py-1 rounded-md border border-orange-700 bg-orange-900 text-orange-100 hover:bg-orange-800 disabled:opacity-60 disabled:cursor-not-allowed"
+          disabled={healthLoading}
+          on:click={onRunHealthDetail}
+        >
+          {healthLoading ? "Running..." : "Run check"}
+        </button>
+      </div>
+      <div class="px-4 py-3 text-[11px] space-y-3">
+        {#if healthError}
+          <div class="text-red-400">Error: {healthError}</div>
+        {:else if !healthDetail}
+          <div class="text-gray-500">No diagnostics run yet.</div>
+        {:else}
+          <div class="flex items-center justify-between">
+            <span class="text-gray-300">Overall</span>
+            <span
+              class="px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide
+                {healthDetail.status === 'ok'
+                  ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
+                  : 'bg-amber-950 text-amber-200 border-amber-700'}"
+            >
+              {healthDetail.status}
+            </span>
+          </div>
+          <div class="mt-2 grid grid-cols-1 gap-2">
+            <div class="flex items-center justify-between">
+              <div class="text-gray-300">Database</div>
+              {#if healthDetail.components?.db}
+                <span
+                  class="px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide
+                    {healthDetail.components.db.ok
+                      ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
+                      : 'bg-red-950 text-red-200 border-red-700'}"
+                  title={healthDetail.components.db.error}
+                >
+                  {healthDetail.components.db.ok ? "OK" : "ERROR"}
+                </span>
+              {/if}
+            </div>
+            <div class="flex items-center justify-between">
+              <div class="text-gray-300">MQTT</div>
+              {#if healthDetail.components?.mqtt}
+                <span
+                  class="px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide
+                    {healthDetail.components.mqtt.enabled
+                      ? (healthDetail.components.mqtt.ok
+                          ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
+                          : 'bg-red-950 text-red-200 border-red-700')
+                      : 'bg-slate-900 text-slate-200 border-slate-700'}"
+                  title={healthDetail.components.mqtt.broker_url}
+                >
+                  {#if !healthDetail.components.mqtt.enabled}
+                    DISABLED
+                  {:else if healthDetail.components.mqtt.ok}
+                    OK
+                  {:else}
+                    ERROR
+                  {/if}
+                </span>
+              {/if}
+            </div>
+            <div class="flex items-center justify-between">
+              <div class="text-gray-300">Registry</div>
+              {#if healthDetail.components?.registry}
+                <span
+                  class="px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide
+                    {healthDetail.components.registry.ok
+                      ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
+                      : 'bg-amber-950 text-amber-200 border-amber-700'}"
+                  title={"nodes=" + (healthDetail.components.registry.counts?.nodes || 0)}
+                >
+                  {healthDetail.components.registry.ok ? "OK" : "EMPTY"}
+                </span>
+              {/if}
+            </div>
+          </div>
+          {#if lastHealthLoadedAt}
+            <p class="mt-2 text-[10px] text-gray-500">
+              Last run: {new Date(lastHealthLoadedAt).toLocaleString()}
+            </p>
+          {/if}
+        {/if}
+
+        <div class="border-t border-gray-800 pt-3 mt-2 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-gray-300">Check Node at URL</span>
+          </div>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              class="flex-1 px-2 py-1 rounded-md bg-gray-900 border border-gray-700 text-gray-100 placeholder-gray-500 text-[11px] focus:outline-none focus:border-orange-500"
+              placeholder="http://node-host:port"
+              value={nodeCheckUrl}
+              on:input={(e) => onNodeUrlChange && onNodeUrlChange(e.target.value)}
+            />
+            <button
+              class="text-[11px] px-2 py-1 rounded-md border border-sky-700 bg-sky-900 text-sky-100 hover:bg-sky-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={nodeCheckLoading}
+              on:click={onRunNodeCheck}
+            >
+              {nodeCheckLoading ? "Checking..." : "Check"}
+            </button>
+          </div>
+          {#if nodeCheckError}
+            <div class="text-[11px] text-red-400">{nodeCheckError}</div>
+          {:else if nodeCheckResult}
+            <div class="text-[11px] text-gray-300 flex items-center justify-between">
+              <span>
+                {nodeCheckResult.base_url || nodeCheckResult.target} →
+                {nodeCheckResult.httpCode} ({nodeCheckResult.status})
+              </span>
+              <span class="text-[10px] text-gray-400 ml-2">
+                {nodeCheckResult.latency}
+              </span>
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
   </div>

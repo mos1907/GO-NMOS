@@ -54,9 +54,22 @@
   let checkerResult = $state(null);
   let automationJobs = $state([]);
   let automationSummary = $state(null);
+  let systemInfo = $state(null);
   let addressMap = $state(null);
   let logsKind = $state("api");
   let logsLines = $state([]);
+
+  // Diagnostics / Health panel state
+  let healthDetail = $state(null);
+  let healthLoading = $state(false);
+  let healthError = $state("");
+  let lastHealthLoadedAt = $state("");
+
+  // Diagnostics: Check Node at URL
+  let nodeCheckUrl = $state("");
+  let nodeCheckLoading = $state(false);
+  let nodeCheckError = $state("");
+  let nodeCheckResult = $state(null);
 
   // Internal NMOS registry (IS-04 style) state
   let registryNodes = $state([]);
@@ -137,10 +150,14 @@
     loading = true;
     error = "";
     try {
-      [summary, flows] = await Promise.all([
+      const [sum, data, sys] = await Promise.all([
         api("/flows/summary", { token }),
-        loadFlows()
+        loadFlows(),
+        api("/system", { token }).catch(() => systemInfo)
       ]);
+      summary = sum;
+      flows = data;
+      systemInfo = sys || systemInfo;
     } catch (e) {
       error = e.message;
     } finally {
@@ -166,9 +183,48 @@
     settings = await api("/settings", { token });
   }
 
+  async function loadHealthDetail() {
+    healthError = "";
+    healthLoading = true;
+    try {
+      const res = await api("/health/detail", { token });
+      healthDetail = res;
+      lastHealthLoadedAt = new Date().toISOString();
+    } catch (e) {
+      healthError = e.message;
+    } finally {
+      healthLoading = false;
+    }
+  }
+
+  async function checkNodeAtUrl() {
+    const url = nodeCheckUrl.trim();
+    if (!url) {
+      nodeCheckError = "URL is required";
+      nodeCheckResult = null;
+      return;
+    }
+    nodeCheckError = "";
+    nodeCheckLoading = true;
+    nodeCheckResult = null;
+    try {
+      const res = await api("/health/check-node", {
+        method: "POST",
+        token,
+        body: { url, timeout_sec: 5 },
+      });
+      nodeCheckResult = res;
+    } catch (e) {
+      nodeCheckError = e.message;
+    } finally {
+      nodeCheckLoading = false;
+    }
+  }
+
   async function refreshAll() {
     success = "";
     await loadDashboard();
+    await loadHealthDetail().catch(() => {});
     await loadUsers().catch(() => {});
     await loadSettings().catch(() => {});
     await loadCheckerLatest().catch(() => {});
@@ -1321,10 +1377,22 @@
         {summary}
         {flows}
         {flowTotal}
+        {systemInfo}
         {realtimeEvents}
         {registryEvents}
         {registryHealth}
         {automationSummary}
+        {healthDetail}
+        {healthLoading}
+        {healthError}
+        {lastHealthLoadedAt}
+        onRunHealthDetail={loadHealthDetail}
+        {nodeCheckUrl}
+        {nodeCheckLoading}
+        {nodeCheckError}
+        {nodeCheckResult}
+        onNodeUrlChange={(v) => (nodeCheckUrl = v)}
+        onRunNodeCheck={checkNodeAtUrl}
       />
     {/if}
 

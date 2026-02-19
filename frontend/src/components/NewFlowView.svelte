@@ -207,8 +207,35 @@
           <div class="md:col-span-2 border-t border-gray-800 pt-4">
             <h3 class="text-sm font-semibold text-gray-200 mb-3">User-Defined Fields (Optional)</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {#each Array(8) as _, i}
-                {@const userNum = i + 1}
+              <!-- Audio-focused hooks for IS-08 -->
+              <div class="space-y-1">
+                <label for="user_field_1" class="block text-xs font-medium text-gray-400">
+                  Audio Layout (IS-08 hook)
+                </label>
+                <input
+                  id="user_field_1"
+                  type="text"
+                  bind:value={newFlow.user_field_1}
+                  placeholder="e.g. 5.1, stereo, mono"
+                  class="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+                />
+              </div>
+              <div class="space-y-1">
+                <label for="user_field_2" class="block text-xs font-medium text-gray-400">
+                  Audio Program Name
+                </label>
+                <input
+                  id="user_field_2"
+                  type="text"
+                  bind:value={newFlow.user_field_2}
+                  placeholder="e.g. Main Program, International, Clean Feed"
+                  class="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded-md text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+                />
+              </div>
+
+              <!-- Remaining generic user fields -->
+              {#each Array(6) as _, i}
+                {@const userNum = i + 3}
                 {@const userKey = `user_field_${userNum}`}
                 <div class="space-y-1">
                   <label for={userKey} class="block text-xs font-medium text-gray-400">

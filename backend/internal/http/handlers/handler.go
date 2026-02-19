@@ -100,6 +100,9 @@ func (h *Handler) Router() http.Handler {
 	r.Route("/api", func(api chi.Router) {
 		api.Use(h.AuthMiddleware)
 		api.Get("/me", h.Me)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/system", h.SystemInfo)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/health/detail", h.HealthDetail)
+		api.With(requireRole("viewer", "editor", "admin")).Post("/health/check-node", h.CheckNMOSNode)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/realtime/config", h.RealtimeConfig)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows", h.ListFlows)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/summary", h.FlowSummary)

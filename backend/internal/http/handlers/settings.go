@@ -9,7 +9,17 @@ import (
 
 func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	settings := map[string]string{}
-	keys := []string{"api_base_url", "anonymous_access", "flow_lock_role", "hard_delete_enabled"}
+	keys := []string{
+		"api_base_url",
+		"anonymous_access",
+		"flow_lock_role",
+		"hard_delete_enabled",
+		// System / timing parameters (IS-09-inspired)
+		"system_ptp_domain",
+		"system_ptp_gmid",
+		"system_expected_is04",
+		"system_expected_is05",
+	}
 	for _, key := range keys {
 		value, err := h.repo.GetSetting(r.Context(), key)
 		if err != nil {

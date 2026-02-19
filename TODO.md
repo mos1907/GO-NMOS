@@ -33,25 +33,21 @@ Each item is a high-level feature; we can break them down further as we implemen
 
 ### 3. IS-08 / Audio Channel Mapping (Future Hooks)
 
-- [ ] **Audio metadata fields on flows**  
-  - Extend flow model with optional audio-related metadata (e.g. channel layout, program name) to prepare for IS-08.
+- [x] **Audio metadata fields on flows (using user_field_1 / user_field_2)**  
+  - Reuse `user_field_1` as **Audio Layout** and `user_field_2` as **Audio Program Name** to prepare for IS-08 without changing the DB schema.
 
-- [ ] **Audio Mapping placeholder UI**  
-  - Add a lightweight “Audio Channels (future)” block in Flow Details so we have a clear place to surface IS-08 integration later.
+- [x] **Audio Mapping placeholder UI**  
+  - Flow Details shows Audio Layout / Program Name in the advanced section, and the New Flow modal exposes them with clear labels.
 
 ---
 
 ### 4. IS-09 / Timing & System Parameters
 
-- [ ] **System parameters backend (IS-09-inspired)**  
-  - Add a `system_parameters` concept (via settings or a small table) for:  
-    - PTP domain & GM ID (manually entered for now).  
-    - “Expected” NMOS versions (IS-04/05/08/09).
+- [x] **System parameters backend (IS-09-inspired)**  
+  - Use `settings` keys (`system_ptp_domain`, `system_ptp_gmid`, `system_expected_is04`, `system_expected_is05`) and expose them via `GET /api/system`.
 
-- [ ] **Timing / System card on dashboard**  
-  - Add a “System / Timing” widget showing:  
-    - PTP status (OK / WARN, even if initially manual).  
-    - Configured NMOS base URLs and versions.
+- [x] **Timing / System card on dashboard**  
+  - Dashboard shows a “System / Timing” card with PTP domain, GMID and expected IS-04/IS-05 versions.
 
 ---
 
