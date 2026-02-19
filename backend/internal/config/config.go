@@ -20,6 +20,7 @@ type Config struct {
 	MQTTEnabled     bool
 	MQTTBrokerURL   string
 	MQTTTopicPrefix string
+	MQTTWSPort      string
 	DisableAuth     bool
 	HTTPSEnabled    bool
 	HTTPSPort       string
@@ -42,6 +43,7 @@ func Load() Config {
 		MQTTEnabled:     getenvBool("MQTT_ENABLED", true),
 		MQTTBrokerURL:   getenv("MQTT_BROKER_URL", "tcp://mqtt:1883"),
 		MQTTTopicPrefix: getenv("MQTT_TOPIC_PREFIX", "go-nmos/flows/events"),
+		MQTTWSPort:      getenv("MQTT_WS_PORT", "9001"),
 		DisableAuth:     getenvBool("DISABLE_AUTH", false),
 		HTTPSEnabled:    getenvBool("HTTPS_ENABLED", false),
 		HTTPSPort:       getenv("HTTPS_PORT", "8443"),

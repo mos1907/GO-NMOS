@@ -21,6 +21,9 @@
     onEditFlow = null,
     onUpdateFlow = null,
     onCheckFlow = null,
+    onFetchSDP = null,
+    onSyncFromNMOS = null,
+    onCheckIS05Receiver = null,
     newFlow = null,
     editingFlow = null,
   } = $props();
@@ -38,10 +41,44 @@
   let showLockInfoModal = $state(false);
   let lockInfoFlow = $state(null);
   let lockInfoMessage = $state("");
-  
+
+  // Fetch SDP
+  let fetchSdpManifestUrl = $state("");
+  let fetchSdpLoading = $state(false);
+  let fetchSdpError = $state("");
+
+  // NMOS -> DB sync (pull)
+  let nmosSyncIs04 = $state("");
+  let nmosSyncIs05 = $state("");
+  let nmosSyncLoading = $state(false);
+  let nmosSyncError = $state("");
+
+  // IS-05 receiver state check
+  let is05CheckBaseUrl = $state("");
+  let is05CheckReceiverId = $state("");
+  let is05CheckLoading = $state(false);
+  let is05CheckError = $state("");
+  let is05CheckResult = $state(null);
+
+  $effect(() => {
+    // Pre-fill from flow record when detail modal opens
+    if (!detailFlow) return;
+    if (!nmosSyncIs04 && detailFlow.nmos_is04_base_url) nmosSyncIs04 = detailFlow.nmos_is04_base_url;
+    if (!nmosSyncIs05 && detailFlow.nmos_is05_base_url) nmosSyncIs05 = detailFlow.nmos_is05_base_url;
+    if (!is05CheckBaseUrl && detailFlow.nmos_is05_base_url) is05CheckBaseUrl = detailFlow.nmos_is05_base_url;
+  });
+
+  // Derived transport/format helpers for nicer IS-05 / ST 2110 badges
+  const formatShortMap = {
+    "urn:x-nmos:format:video": "ST 2110-20 (video)",
+    "urn:x-nmos:format:audio": "ST 2110-30 (audio)",
+    "urn:x-nmos:format:data": "ST 2110-40 (data)",
+  };
+
   // Filters
   let statusFilter = $state("");
   let availabilityFilter = $state("");
+  let dataSourceFilter = $state("");
 
   function handleOpenModal() {
     showNewFlowModal = true;
@@ -128,6 +165,9 @@
     if (availabilityFilter) {
       filtered = filtered.filter((f) => f.availability === availabilityFilter);
     }
+    if (dataSourceFilter) {
+      filtered = filtered.filter((f) => (f.data_source || "manual") === dataSourceFilter);
+    }
     return filtered;
   });
 </script>
@@ -199,6 +239,18 @@
           <option value="maintenance">maintenance</option>
         </select>
       </label>
+      <label class="flex items-center gap-1 text-gray-300">
+        <span>Source</span>
+        <select
+          bind:value={dataSourceFilter}
+          class="px-2 py-1 rounded-md border border-gray-700 bg-gray-900 text-xs text-gray-100 focus:outline-none focus:border-orange-500 transition-colors"
+        >
+          <option value="">All</option>
+          <option value="manual">manual</option>
+          <option value="nmos">nmos</option>
+          <option value="rds">rds</option>
+        </select>
+      </label>
       <div class="flex items-center gap-1">
         <button
           class="px-2.5 py-1 rounded-md border border-gray-700 bg-gray-900 text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-40 transition-colors"
@@ -217,7 +269,7 @@
       </div>
       <span class="text-[11px] text-gray-400">
         Showing {flowOffset + 1}-{Math.min(flowOffset + flowLimit, flowTotal)} / {flowTotal}
-        {#if statusFilter || availabilityFilter}
+        {#if statusFilter || availabilityFilter || dataSourceFilter}
           <span class="text-orange-400">({filteredFlows?.length || 0} filtered)</span>
         {/if}
       </span>
@@ -256,14 +308,14 @@
               />
             </td>
           </tr>
-        {:else if (statusFilter || availabilityFilter) && filteredFlows.length === 0}
+        {:else if (statusFilter || availabilityFilter || dataSourceFilter) && filteredFlows.length === 0}
           <tr>
             <td colspan={canEdit ? 11 : 10} class="px-6 py-12 text-center text-gray-400 text-sm">
               No flows match the selected filters
             </td>
           </tr>
         {:else}
-          {#each (statusFilter || availabilityFilter ? filteredFlows : flows) as flow}
+          {#each (statusFilter || availabilityFilter || dataSourceFilter ? filteredFlows : flows) as flow}
             <tr class="hover:bg-gray-800/70 transition-colors cursor-pointer" onclick={() => openDetailModal(flow)}>
               <td class="px-3 py-2 text-[13px] font-medium text-gray-100">{flow.display_name}</td>
               <td class="px-3 py-2 text-gray-300">{flow.flow_id}</td>
@@ -458,6 +510,276 @@
           <div>
             <p class="text-xs text-gray-400 mb-1">Note</p>
             <p class="text-sm text-gray-300 bg-gray-800 p-3 rounded-md">{detailFlow.note}</p>
+          </div>
+        {/if}
+
+        {#if detailFlow.source_addr_a || detailFlow.multicast_addr_a || detailFlow.group_port_a || detailFlow.source_addr_b || detailFlow.multicast_addr_b || detailFlow.group_port_b || detailFlow.nmos_node_id || detailFlow.nmos_flow_id || detailFlow.nmos_sender_id || detailFlow.nmos_device_id || detailFlow.media_type || detailFlow.redundancy_group || detailFlow.data_source}
+          <div class="border-t border-gray-800 pt-4 mt-4">
+            <p class="text-xs text-gray-400 mb-2 font-medium">ST 2110 / ST 2022-7 / NMOS (Advanced)</p>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="col-span-2">
+                <p class="text-xs text-gray-500 mb-1">Data Source</p>
+                <p class="text-sm text-gray-300">{detailFlow.data_source || "manual"}</p>
+              </div>
+
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Path A (Source)</p>
+                <p class="text-sm text-gray-300 font-mono">{detailFlow.source_addr_a || "-"}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Path A (Multicast / Port)</p>
+                <p class="text-sm text-gray-300 font-mono">
+                  {detailFlow.multicast_addr_a || "-"}:{detailFlow.group_port_a || "-"}
+                </p>
+              </div>
+
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Path B (Source)</p>
+                <p class="text-sm text-gray-300 font-mono">{detailFlow.source_addr_b || "-"}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Path B (Multicast / Port)</p>
+                <p class="text-sm text-gray-300 font-mono">
+                  {detailFlow.multicast_addr_b || "-"}:{detailFlow.group_port_b || "-"}
+                </p>
+              </div>
+
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Media Type</p>
+                <p class="text-sm text-gray-300">{detailFlow.media_type || "-"}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1">ST 2110 Format</p>
+                <p class="text-sm text-gray-300">
+                  {#if detailFlow.st2110_format}
+                    {formatShortMap[detailFlow.st2110_format] || detailFlow.st2110_format}
+                  {:else}
+                    -
+                  {/if}
+                </p>
+              </div>
+
+              <div class="col-span-2 flex flex-wrap items-center gap-2 mt-1">
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium bg-slate-900 text-slate-100 border border-slate-700">
+                  Transport: {detailFlow.transport_protocol || "RTP/UDP"}
+                </span>
+                <span
+                  class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium border
+                    {detailFlow.source_addr_b || detailFlow.multicast_addr_b
+                      ? 'bg-emerald-950 text-emerald-200 border-emerald-700'
+                      : 'bg-slate-900 text-slate-200 border-slate-700'}"
+                >
+                  {detailFlow.source_addr_b || detailFlow.multicast_addr_b ? "2022-7 A/B" : "Single-path"}
+                </span>
+                {#if detailFlow.redundancy_group}
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium bg-sky-950 text-sky-100 border border-sky-700">
+                    Redundancy group
+                  </span>
+                {/if}
+              </div>
+
+              {#if detailFlow.nmos_node_id || detailFlow.nmos_flow_id || detailFlow.nmos_sender_id || detailFlow.nmos_device_id}
+                <div class="col-span-2">
+                  <p class="text-xs text-gray-500 mb-1">NMOS IDs</p>
+                  <div class="text-[11px] text-gray-300 font-mono space-y-1">
+                    {#if detailFlow.nmos_node_id}<div>node: {detailFlow.nmos_node_id}</div>{/if}
+                    {#if detailFlow.nmos_device_id}<div>device: {detailFlow.nmos_device_id}</div>{/if}
+                    {#if detailFlow.nmos_sender_id}<div>sender: {detailFlow.nmos_sender_id}</div>{/if}
+                    {#if detailFlow.nmos_flow_id}<div>flow: {detailFlow.nmos_flow_id}</div>{/if}
+                  </div>
+                </div>
+              {/if}
+
+              {#if canEdit && onSyncFromNMOS}
+                <div class="col-span-2 border-t border-gray-800 pt-3">
+                  <p class="text-xs text-gray-500 mb-2">Sync from NMOS (Pull → DB)</p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">IS-04 Base URL</label>
+                      <input
+                        type="text"
+                        bind:value={nmosSyncIs04}
+                        placeholder="http://node-ip:port"
+                        class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">IS-05 Base URL (optional)</label>
+                      <input
+                        type="text"
+                        bind:value={nmosSyncIs05}
+                        placeholder="http://node-ip:port"
+                        class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+                  <div class="mt-2 flex items-center gap-2">
+                    <button
+                      onclick={async () => {
+                        if (!detailFlow?.id || !nmosSyncIs04.trim()) return;
+                        nmosSyncError = "";
+                        nmosSyncLoading = true;
+                        try {
+                          const result = await onSyncFromNMOS(detailFlow.id, nmosSyncIs04.trim(), nmosSyncIs05.trim());
+                          if (result?.flow) detailFlow = result.flow;
+                        } catch (e) {
+                          nmosSyncError = e.message || "Sync failed";
+                        } finally {
+                          nmosSyncLoading = false;
+                        }
+                      }}
+                      disabled={nmosSyncLoading || !nmosSyncIs04.trim()}
+                      class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium"
+                    >
+                      {nmosSyncLoading ? "Syncing..." : "Sync from NMOS"}
+                    </button>
+                    <p class="text-xs text-gray-500">This will update the flow record from NMOS/SDP/IS-05.</p>
+                  </div>
+                  {#if nmosSyncError}
+                    <p class="text-xs text-red-400 mt-1">{nmosSyncError}</p>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if onCheckIS05Receiver}
+                <div class="col-span-2 border-t border-gray-800 pt-3">
+                  <p class="text-xs text-gray-500 mb-2">IS-05 Receiver State Check</p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">IS-05 Base URL</label>
+                      <input
+                        type="text"
+                        bind:value={is05CheckBaseUrl}
+                        placeholder="http://node-ip:port"
+                        class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">Receiver ID</label>
+                      <input
+                        type="text"
+                        bind:value={is05CheckReceiverId}
+                        placeholder="receiver UUID"
+                        class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="mt-2 flex items-center gap-2">
+                    <button
+                      onclick={async () => {
+                        if (!detailFlow?.id || !is05CheckBaseUrl.trim() || !is05CheckReceiverId.trim()) return;
+                        is05CheckError = "";
+                        is05CheckResult = null;
+                        is05CheckLoading = true;
+                        try {
+                          const res = await onCheckIS05Receiver(detailFlow.id, is05CheckBaseUrl.trim(), is05CheckReceiverId.trim());
+                          is05CheckResult = res;
+                        } catch (e) {
+                          is05CheckError = e.message || "Check failed";
+                        } finally {
+                          is05CheckLoading = false;
+                        }
+                      }}
+                      disabled={is05CheckLoading || !is05CheckBaseUrl.trim() || !is05CheckReceiverId.trim()}
+                      class="px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-sm font-medium"
+                    >
+                      {is05CheckLoading ? "Checking..." : "Check Receiver State"}
+                    </button>
+                    <p class="text-xs text-gray-500">Reads active/staged transport_params and compares to this flow.</p>
+                  </div>
+
+                  {#if is05CheckError}
+                    <p class="text-xs text-red-400 mt-1">{is05CheckError}</p>
+                  {/if}
+
+                  {#if is05CheckResult}
+                    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div class="rounded-lg border border-gray-800 bg-gray-950 p-3">
+                        <p class="text-xs text-gray-500 mb-1">Active</p>
+                        <p class="text-[11px] text-gray-300">
+                          A match: <span class={is05CheckResult.active?.matches_a ? "text-emerald-300" : "text-amber-300"}>{is05CheckResult.active?.matches_a ? "YES" : "NO"}</span>
+                        </p>
+                        <p class="text-[11px] text-gray-300">
+                          B match: <span class={is05CheckResult.active?.matches_b ? "text-emerald-300" : "text-amber-300"}>{is05CheckResult.active?.matches_b ? "YES" : "NO"}</span>
+                        </p>
+                      </div>
+                      <div class="rounded-lg border border-gray-800 bg-gray-950 p-3">
+                        <p class="text-xs text-gray-500 mb-1">Staged</p>
+                        <p class="text-[11px] text-gray-300">
+                          A match: <span class={is05CheckResult.staged?.matches_a ? "text-emerald-300" : "text-amber-300"}>{is05CheckResult.staged?.matches_a ? "YES" : "NO"}</span>
+                        </p>
+                        <p class="text-[11px] text-gray-300">
+                          B match: <span class={is05CheckResult.staged?.matches_b ? "text-emerald-300" : "text-amber-300"}>{is05CheckResult.staged?.matches_b ? "YES" : "NO"}</span>
+                        </p>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        {#if detailFlow.sdp_url || detailFlow.sdp_cache || (canEdit && onFetchSDP)}
+          <div class="border-t border-gray-800 pt-4 mt-4">
+            <p class="text-xs text-gray-400 mb-2 font-medium">SDP (Session Description Protocol)</p>
+            {#if detailFlow.sdp_url}
+              <div class="mb-2">
+                <p class="text-xs text-gray-500 mb-1">Manifest URL</p>
+                <a
+                  href={detailFlow.sdp_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="text-sm text-orange-400 hover:text-orange-300 break-all"
+                >
+                  {detailFlow.sdp_url}
+                </a>
+              </div>
+            {/if}
+            {#if detailFlow.sdp_cache}
+              <details class="bg-gray-950 rounded-lg border border-gray-800 mb-3">
+                <summary class="px-4 py-2 cursor-pointer text-sm text-gray-300 hover:text-gray-100">
+                  View SDP Content
+                </summary>
+                <pre class="p-4 text-xs font-mono text-green-200 overflow-auto max-h-48 whitespace-pre-wrap break-words">{detailFlow.sdp_cache}</pre>
+              </details>
+            {/if}
+            {#if canEdit && onFetchSDP}
+              <div class="flex gap-2 items-end">
+                <div class="flex-1">
+                  <label class="block text-xs text-gray-500 mb-1">Fetch SDP from manifest URL</label>
+                  <input
+                    type="url"
+                    bind:value={fetchSdpManifestUrl}
+                    placeholder="http://node-ip:port/sdp/..."
+                    class="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                <button
+                  onclick={async () => {
+                    if (!fetchSdpManifestUrl.trim() || !detailFlow?.id) return;
+                    fetchSdpError = "";
+                    fetchSdpLoading = true;
+                    try {
+                      const result = await onFetchSDP(detailFlow.id, fetchSdpManifestUrl.trim());
+                      if (result?.flow) detailFlow = result.flow;
+                    } catch (e) {
+                      fetchSdpError = e.message || "Fetch failed";
+                    } finally {
+                      fetchSdpLoading = false;
+                    }
+                  }}
+                  disabled={fetchSdpLoading || !fetchSdpManifestUrl.trim()}
+                  class="px-4 py-2 rounded-md bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-sm font-medium"
+                >
+                  {fetchSdpLoading ? "Fetching..." : "Fetch SDP"}
+                </button>
+              </div>
+              {#if fetchSdpError}
+                <p class="text-xs text-red-400 mt-1">{fetchSdpError}</p>
+              {/if}
+            {/if}
           </div>
         {/if}
       </div>

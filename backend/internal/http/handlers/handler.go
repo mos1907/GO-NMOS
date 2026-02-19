@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go-nmos/backend/internal/config"
@@ -19,6 +21,9 @@ type Handler struct {
 	cfg  config.Config
 	repo repository.Repository
 	mqtt *mqtt.Client
+
+	registryMu    sync.Mutex
+	registryConns map[*wsConn]struct{}
 }
 
 type AuthClaims struct {
@@ -28,7 +33,39 @@ type AuthClaims struct {
 }
 
 func NewHandler(cfg config.Config, repo repository.Repository, mqttClient *mqtt.Client) *Handler {
-	return &Handler{cfg: cfg, repo: repo, mqtt: mqttClient}
+	return &Handler{
+		cfg:           cfg,
+		repo:          repo,
+		mqtt:          mqttClient,
+		registryConns: make(map[*wsConn]struct{}),
+	}
+}
+
+// RealtimeConfig exposes MQTT/WebSocket configuration for the frontend.
+// This mirrors mmam-docker's get_frontend_config behaviour.
+func (h *Handler) RealtimeConfig(w http.ResponseWriter, r *http.Request) {
+	wsURL := ""
+	if h.cfg.MQTTEnabled {
+		scheme := "ws"
+		if h.cfg.HTTPSEnabled || r.TLS != nil {
+			scheme = "wss"
+		}
+		host := r.Host
+		if idx := strings.Index(host, ":"); idx >= 0 {
+			host = host[:idx]
+		}
+		port := h.cfg.MQTTWSPort
+		if port == "" {
+			port = "9001"
+		}
+		wsURL = fmt.Sprintf("%s://%s:%s", scheme, host, port)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mqtt_enabled": h.cfg.MQTTEnabled,
+		"ws_url":       wsURL,
+		"topic_prefix": h.cfg.MQTTTopicPrefix,
+		"broker_url":   h.cfg.MQTTBrokerURL,
+	})
 }
 
 func (h *Handler) Router() http.Handler {
@@ -57,10 +94,13 @@ func (h *Handler) Router() http.Handler {
 
 	r.Get("/api/health", h.Health)
 	r.Post("/api/login", h.Login)
+	// WebSocket endpoint for NMOS registry events (no auth; informational only)
+	r.Get("/ws/registry", h.RegistryEventsWS)
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(h.AuthMiddleware)
 		api.Get("/me", h.Me)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/realtime/config", h.RealtimeConfig)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows", h.ListFlows)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/summary", h.FlowSummary)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/search", h.SearchFlows)
@@ -86,10 +126,15 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/detect-is04-from-rds", h.DetectIS04FromRDS)
 		api.With(requireRole("admin")).Post("/nmos/explore-ports", h.ExplorePorts)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/check", h.CheckFlowNMOS)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/snapshot", h.GetFlowNMOSSnapShot)
+		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/sync", h.SyncFlowFromNMOS)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/apply", h.ApplyFlowNMOS)
+		api.With(requireRole("viewer", "editor", "admin")).Post("/flows/{id}/is05/receiver-check", h.CheckIS05ReceiverState)
+		api.With(requireRole("editor", "admin")).Post("/flows/{id}/fetch-sdp", h.FetchSDP)
 
 		// Internal NMOS registry (IS-04 style) read-only APIs
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/registry/discover-nodes", h.DiscoverNMOSRegistryNodes)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/health", h.NMOSRegistryHealth)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/nodes", h.ListNMOSNodesHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/devices", h.ListNMOSDevicesHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/flows", h.ListNMOSFlowsHandler)

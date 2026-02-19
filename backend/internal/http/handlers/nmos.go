@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go-nmos/backend/internal/models"
+	"go-nmos/backend/internal/sdp"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -157,6 +158,368 @@ func (h *Handler) CheckFlowNMOS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type flowSnapshot struct {
+	// ST2022-7 A/B (best-effort; may be empty if IS-05 transport params not available)
+	SourceAddrA    string `json:"source_addr_a,omitempty"`
+	SourcePortA    int    `json:"source_port_a,omitempty"`
+	MulticastAddrA string `json:"multicast_addr_a,omitempty"`
+	GroupPortA     int    `json:"group_port_a,omitempty"`
+	SourceAddrB    string `json:"source_addr_b,omitempty"`
+	SourcePortB    int    `json:"source_port_b,omitempty"`
+	MulticastAddrB string `json:"multicast_addr_b,omitempty"`
+	GroupPortB     int    `json:"group_port_b,omitempty"`
+
+	// NMOS
+	NMOSNodeID          string `json:"nmos_node_id,omitempty"`
+	NMOSFlowID          string `json:"nmos_flow_id,omitempty"`
+	NMOSSenderID        string `json:"nmos_sender_id,omitempty"`
+	NMOSDeviceID        string `json:"nmos_device_id,omitempty"`
+	NMOSNodeLabel       string `json:"nmos_node_label,omitempty"`
+	NMOSNodeDescription string `json:"nmos_node_description,omitempty"`
+	NMOSIS04BaseURL     string `json:"nmos_is04_base_url,omitempty"`
+	NMOSIS05BaseURL     string `json:"nmos_is05_base_url,omitempty"`
+	NMOSIS04Version     string `json:"nmos_is04_version,omitempty"`
+	NMOSIS05Version     string `json:"nmos_is05_version,omitempty"`
+
+	// SDP / media
+	SDPURL            string `json:"sdp_url,omitempty"`
+	SDPCache          string `json:"sdp_cache,omitempty"`
+	MediaType         string `json:"media_type,omitempty"`
+	RedundancyGroup   string `json:"redundancy_group,omitempty"`
+	TransportProtocol string `json:"transport_protocol,omitempty"`
+	ST2110Format      string `json:"st2110_format,omitempty"`
+
+	// Raw NMOS payloads for debugging
+	RawNode   map[string]any `json:"raw_node,omitempty"`
+	RawFlow   map[string]any `json:"raw_flow,omitempty"`
+	RawSender map[string]any `json:"raw_sender,omitempty"`
+	RawIS05   map[string]any `json:"raw_is05,omitempty"`
+}
+
+// GetFlowNMOSSnapShot returns a best-effort NMOS snapshot for a flow.
+// It prefers the flow's stored NMOS base URLs/versions, but can also accept overrides via query params.
+func (h *Handler) GetFlowNMOSSnapShot(w http.ResponseWriter, r *http.Request) {
+	id, err := parsePathInt64(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid flow id"})
+		return
+	}
+	flow, err := h.repo.GetFlowByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "flow not found"})
+		return
+	}
+
+	is04Base := strings.TrimSpace(r.URL.Query().Get("is04_base_url"))
+	if is04Base == "" {
+		is04Base = strings.TrimSpace(flow.NMOSIS04BaseURL)
+	}
+	is05Base := strings.TrimSpace(r.URL.Query().Get("is05_base_url"))
+	if is05Base == "" {
+		is05Base = strings.TrimSpace(flow.NMOSIS05BaseURL)
+	}
+	timeoutSec := 6
+	if t := strings.TrimSpace(r.URL.Query().Get("timeout")); t != "" {
+		if n, err := strconv.Atoi(t); err == nil && n > 0 && n <= 30 {
+			timeoutSec = n
+		}
+	}
+	if is04Base == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "is04_base_url is required (or store nmos_is04_base_url on the flow)"})
+		return
+	}
+	is04Base = strings.TrimRight(is04Base, "/")
+	if is05Base != "" {
+		is05Base = strings.TrimRight(is05Base, "/")
+	}
+
+	snap, err := h.buildNMOSSnapShot(*flow, is04Base, is05Base, timeoutSec)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"flow_id":  flow.FlowID,
+		"flow_db":  flow,
+		"snapshot": snap,
+	})
+}
+
+type syncFromNMOSRequest struct {
+	Fields      []string `json:"fields"`
+	Is04BaseURL string   `json:"is04_base_url,omitempty"`
+	Is05BaseURL string   `json:"is05_base_url,omitempty"`
+	Timeout     int      `json:"timeout,omitempty"`
+}
+
+// SyncFlowFromNMOS pulls NMOS/SDP/IS-05 transport params and updates the flow record for selected fields.
+func (h *Handler) SyncFlowFromNMOS(w http.ResponseWriter, r *http.Request) {
+	id, err := parsePathInt64(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid flow id"})
+		return
+	}
+	flow, err := h.repo.GetFlowByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "flow not found"})
+		return
+	}
+	if flow.Locked {
+		writeJSON(w, http.StatusLocked, map[string]string{"error": "flow is locked. Unlock before syncing from NMOS."})
+		return
+	}
+
+	var req syncFromNMOSRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if len(req.Fields) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fields is required"})
+		return
+	}
+	timeoutSec := req.Timeout
+	if timeoutSec <= 0 || timeoutSec > 30 {
+		timeoutSec = 6
+	}
+
+	is04Base := strings.TrimSpace(req.Is04BaseURL)
+	if is04Base == "" {
+		is04Base = strings.TrimSpace(flow.NMOSIS04BaseURL)
+	}
+	is05Base := strings.TrimSpace(req.Is05BaseURL)
+	if is05Base == "" {
+		is05Base = strings.TrimSpace(flow.NMOSIS05BaseURL)
+	}
+	if is04Base == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "is04_base_url is required (or store nmos_is04_base_url on the flow)"})
+		return
+	}
+	is04Base = strings.TrimRight(is04Base, "/")
+	if is05Base != "" {
+		is05Base = strings.TrimRight(is05Base, "/")
+	}
+
+	snap, err := h.buildNMOSSnapShot(*flow, is04Base, is05Base, timeoutSec)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+
+	allowed := map[string]func(map[string]any, flowSnapshot){
+		"source_addr_a":         func(u map[string]any, s flowSnapshot) { u["source_addr_a"] = s.SourceAddrA },
+		"source_port_a":         func(u map[string]any, s flowSnapshot) { u["source_port_a"] = s.SourcePortA },
+		"multicast_addr_a":      func(u map[string]any, s flowSnapshot) { u["multicast_addr_a"] = s.MulticastAddrA },
+		"group_port_a":          func(u map[string]any, s flowSnapshot) { u["group_port_a"] = s.GroupPortA },
+		"source_addr_b":         func(u map[string]any, s flowSnapshot) { u["source_addr_b"] = s.SourceAddrB },
+		"source_port_b":         func(u map[string]any, s flowSnapshot) { u["source_port_b"] = s.SourcePortB },
+		"multicast_addr_b":      func(u map[string]any, s flowSnapshot) { u["multicast_addr_b"] = s.MulticastAddrB },
+		"group_port_b":          func(u map[string]any, s flowSnapshot) { u["group_port_b"] = s.GroupPortB },
+		"nmos_node_id":          func(u map[string]any, s flowSnapshot) { u["nmos_node_id"] = s.NMOSNodeID },
+		"nmos_flow_id":          func(u map[string]any, s flowSnapshot) { u["nmos_flow_id"] = s.NMOSFlowID },
+		"nmos_sender_id":        func(u map[string]any, s flowSnapshot) { u["nmos_sender_id"] = s.NMOSSenderID },
+		"nmos_device_id":        func(u map[string]any, s flowSnapshot) { u["nmos_device_id"] = s.NMOSDeviceID },
+		"nmos_node_label":       func(u map[string]any, s flowSnapshot) { u["nmos_node_label"] = s.NMOSNodeLabel },
+		"nmos_node_description": func(u map[string]any, s flowSnapshot) { u["nmos_node_description"] = s.NMOSNodeDescription },
+		"nmos_is04_base_url":    func(u map[string]any, s flowSnapshot) { u["nmos_is04_base_url"] = s.NMOSIS04BaseURL },
+		"nmos_is05_base_url":    func(u map[string]any, s flowSnapshot) { u["nmos_is05_base_url"] = s.NMOSIS05BaseURL },
+		"nmos_is04_version":     func(u map[string]any, s flowSnapshot) { u["nmos_is04_version"] = s.NMOSIS04Version },
+		"nmos_is05_version":     func(u map[string]any, s flowSnapshot) { u["nmos_is05_version"] = s.NMOSIS05Version },
+		"sdp_url":               func(u map[string]any, s flowSnapshot) { u["sdp_url"] = s.SDPURL },
+		"sdp_cache":             func(u map[string]any, s flowSnapshot) { u["sdp_cache"] = s.SDPCache },
+		"media_type":            func(u map[string]any, s flowSnapshot) { u["media_type"] = s.MediaType },
+		"redundancy_group":      func(u map[string]any, s flowSnapshot) { u["redundancy_group"] = s.RedundancyGroup },
+		"transport_protocol":    func(u map[string]any, s flowSnapshot) { u["transport_protocol"] = s.TransportProtocol },
+		"st2110_format":         func(u map[string]any, s flowSnapshot) { u["st2110_format"] = s.ST2110Format },
+		"data_source":           func(u map[string]any, s flowSnapshot) { u["data_source"] = "nmos" },
+	}
+
+	updates := map[string]any{}
+	applied := []string{}
+	for _, f := range req.Fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if apply, ok := allowed[f]; ok {
+			apply(updates, snap)
+			applied = append(applied, f)
+		}
+	}
+	if len(updates) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no valid fields to sync"})
+		return
+	}
+
+	if err := h.repo.PatchFlow(r.Context(), id, updates); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
+		return
+	}
+	updatedFlow, _ := h.repo.GetFlowByID(r.Context(), id)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"applied_fields": applied,
+		"snapshot":       snap,
+		"flow":           updatedFlow,
+	})
+}
+
+func (h *Handler) buildNMOSSnapShot(flow models.Flow, is04Base, is05Base string, timeoutSec int) (flowSnapshot, error) {
+	client := &http.Client{Timeout: time.Duration(timeoutSec) * time.Second}
+
+	versions, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/node/", is04Base))
+	if err != nil || len(versions) == 0 {
+		return flowSnapshot{}, fmt.Errorf("could not discover IS-04 versions")
+	}
+	sort.Strings(versions)
+	is04Ver := strings.Trim(versions[len(versions)-1], "/")
+
+	selfObj, _ := h.fetchJSONMapWithClient(client, fmt.Sprintf("%s/x-nmos/node/%s/self", is04Base, is04Ver))
+	nodeID := asString(selfObj["id"])
+	nodeLabel := asString(selfObj["label"])
+	nodeDesc := asString(selfObj["description"])
+
+	nmosFlowID := strings.TrimSpace(flow.NMOSFlowID)
+	if nmosFlowID == "" {
+		nmosFlowID = flow.FlowID
+	}
+	flowObj, _ := h.fetchJSONMapWithClient(client, fmt.Sprintf("%s/x-nmos/node/%s/flows/%s", is04Base, is04Ver, nmosFlowID))
+
+	sendersData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/senders", is04Base, is04Ver))
+	var senderObj map[string]any
+	for _, s := range sendersData {
+		if asString(s["flow_id"]) == nmosFlowID {
+			senderObj = s
+			break
+		}
+	}
+	senderID := asString(senderObj["id"])
+	deviceID := asString(senderObj["device_id"])
+	manifest := asString(senderObj["manifest_href"])
+	transport := asString(senderObj["transport"])
+
+	sdpText := ""
+	parsed := sdp.ParsedDetails{}
+	if manifest != "" {
+		resp, err := client.Get(manifest)
+		if err == nil && resp != nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				b, _ := io.ReadAll(resp.Body)
+				sdpText = strings.TrimSpace(string(b))
+				parsed = sdp.ParseSDP(sdpText)
+			}
+		}
+	}
+
+	// Best-effort IS-05 transport params (path A/B)
+	var is05Obj map[string]any
+	var tpA, tpB map[string]any
+	if is05Base != "" && senderID != "" {
+		// Discover versions
+		connVers, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/connection/", is05Base))
+		connVer := ""
+		if err == nil && len(connVers) > 0 {
+			sort.Strings(connVers)
+			connVer = strings.Trim(connVers[len(connVers)-1], "/")
+		}
+		if connVer != "" {
+			paths := []string{
+				fmt.Sprintf("%s/x-nmos/connection/%s/single/senders/%s/active", is05Base, connVer, senderID),
+				fmt.Sprintf("%s/x-nmos/connection/%s/single/senders/%s/staged", is05Base, connVer, senderID),
+			}
+			for _, p := range paths {
+				obj, err := h.fetchJSONMapWithClient(client, p)
+				if err == nil && obj != nil {
+					is05Obj = obj
+					break
+				}
+			}
+		}
+	}
+	if tps, ok := is05Obj["transport_params"].([]any); ok && len(tps) > 0 {
+		if m, ok := tps[0].(map[string]any); ok {
+			tpA = m
+		}
+		if len(tps) > 1 {
+			if m, ok := tps[1].(map[string]any); ok {
+				tpB = m
+			}
+		}
+	}
+	pickStr := func(m map[string]any, key string) string {
+		if m == nil {
+			return ""
+		}
+		v, _ := m[key].(string)
+		return v
+	}
+	pickInt := func(m map[string]any, key string) int {
+		if m == nil {
+			return 0
+		}
+		switch v := m[key].(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		default:
+			return 0
+		}
+	}
+
+	snap := flowSnapshot{
+		SourceAddrA:         fallback(pickStr(tpA, "source_ip"), parsed.SourceAddrA),
+		SourcePortA:         pickInt(tpA, "source_port"),
+		MulticastAddrA:      fallback(pickStr(tpA, "destination_ip"), parsed.MulticastAddrA),
+		GroupPortA:          pickInt(tpA, "destination_port"),
+		SourceAddrB:         pickStr(tpB, "source_ip"),
+		SourcePortB:         pickInt(tpB, "source_port"),
+		MulticastAddrB:      pickStr(tpB, "destination_ip"),
+		GroupPortB:          pickInt(tpB, "destination_port"),
+		NMOSNodeID:          nodeID,
+		NMOSFlowID:          nmosFlowID,
+		NMOSSenderID:        senderID,
+		NMOSDeviceID:        deviceID,
+		NMOSNodeLabel:       nodeLabel,
+		NMOSNodeDescription: nodeDesc,
+		NMOSIS04BaseURL:     is04Base,
+		NMOSIS05BaseURL:     is05Base,
+		NMOSIS04Version:     is04Ver,
+		SDPURL:              manifest,
+		SDPCache:            sdpText,
+		MediaType:           parsed.MediaType,
+		RedundancyGroup:     parsed.RedundancyGroup,
+		TransportProtocol:   fallback(transport, flow.TransportProto),
+		ST2110Format:        asString(flowObj["format"]),
+		RawNode:             selfObj,
+		RawFlow:             flowObj,
+		RawSender:           senderObj,
+		RawIS05:             is05Obj,
+	}
+	return snap, nil
+}
+
+func (h *Handler) fetchJSONMapWithClient(client *http.Client, url string) (map[string]any, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
 // syncNMOSRegistry ingests the discovered NMOS resources into the internal registry tables.
 // It is intentionally best-effort and runs in a separate goroutine from DiscoverNMOS.
 func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsData, sendersData, receiversData []map[string]any) {
@@ -257,6 +620,21 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 		}
 		_ = h.repo.UpsertNMOSReceiver(ctx, rec)
 	}
+
+	// Broadcast a high-level "sync completed" registry event over WebSocket (best-effort).
+	h.publishRegistryEvent(RegistryEvent{
+		Kind:     "sync",
+		Resource: "nmos_registry",
+		Info: map[string]any{
+			"base_url":  baseURL,
+			"version":   version,
+			"nodes":     len(nodesByID),
+			"devices":   len(devicesData),
+			"flows":     len(flowsData),
+			"senders":   len(sendersData),
+			"receivers": len(receiversData),
+		},
+	})
 }
 
 type nmosApplyRequest struct {

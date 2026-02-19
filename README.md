@@ -117,6 +117,7 @@ go-NMOS/
 - **NMOS Integration** - IS-04 discovery and IS-05 connection management
 - **NMOS Patch Panel** - Visual router-style interface for sender/receiver patching
 - **NMOS Registry (RDS) Support** - Connect to IS-04 Query API registries
+- **SDP (Session Description Protocol)** - Fetch and cache SDP manifests from NMOS sender `manifest_href`, parse multicast/source/port
 - **Collision Detection** - Automatic detection of IP/port conflicts
 - **Automation Jobs** - Scheduled tasks for flow management
 - **Address Planning** - Hierarchical address bucket management
@@ -147,6 +148,7 @@ go-NMOS/
 - `POST /api/nmos/detect-is04-from-rds` body: `{ "rds_query_url": "http://<registry>:<port>", "node_id": "optional" }` - Auto-detect IS-04 from RDS
 - `POST /api/nmos/explore-ports` body: `{ "host": "192.168.1.100", "ports": [8080, 8081], "port_range": "8080-8090", "concurrency": 10, "timeout": 3 }` - Port scanning (Admin only)
 - `POST /api/flows/{id}/nmos/apply` body: `{ "connection_url": "http://.../staged", "sender_id": "optional" }`
+- `POST /api/flows/{id}/fetch-sdp` body: `{ "manifest_url": "http://..." }` - Fetch SDP from NMOS sender manifest URL, parse and update flow
 
 #### NMOS Registry (RDS)
 - `POST /api/nmos/registry/discover-nodes` body: `{ "query_url": "http://<registry>:<port>" }`

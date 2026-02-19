@@ -53,6 +53,7 @@
   let nmosTakeBusy = $state(false);
   let checkerResult = $state(null);
   let automationJobs = $state([]);
+  let automationSummary = $state(null);
   let addressMap = $state(null);
   let logsKind = $state("api");
   let logsLines = $state([]);
@@ -62,6 +63,7 @@
   let registryDevices = $state([]);
   let registrySenders = $state([]);
   let registryReceivers = $state([]);
+  let registryHealth = $state(null);
   let selectedRegistryNodeId = $state("");
   let selectedRegistryDeviceId = $state("");
 
@@ -236,6 +238,8 @@
       availability: "available",
       transport_protocol: "RTP/UDP",
       note: "",
+      sdp_url: "",
+      sdp_cache: "",
       alias_1: "",
       alias_2: "",
       alias_3: "",
@@ -268,6 +272,8 @@
       availability: flow.availability || "available",
       transport_protocol: flow.transport_protocol || "",
       note: flow.note || "",
+      sdp_url: flow.sdp_url || "",
+      sdp_cache: flow.sdp_cache || "",
       alias_1: flow.alias_1 || "",
       alias_2: flow.alias_2 || "",
       alias_3: flow.alias_3 || "",
@@ -297,6 +303,68 @@
     } catch (e) {
       throw new Error(e.message || "Failed to check flow");
     }
+  }
+
+  async function fetchFlowSDP(flowId, manifestUrl) {
+    const result = await api(`/flows/${flowId}/fetch-sdp`, {
+      method: "POST",
+      token,
+      body: { manifest_url: manifestUrl },
+    });
+    return result;
+  }
+
+  async function syncFlowFromNMOS(flowId, is04BaseUrl, is05BaseUrl) {
+    const result = await api(`/flows/${flowId}/nmos/sync`, {
+      method: "POST",
+      token,
+      body: {
+        is04_base_url: is04BaseUrl || "",
+        is05_base_url: is05BaseUrl || "",
+        timeout: 6,
+        fields: [
+          "data_source",
+          "nmos_node_id",
+          "nmos_flow_id",
+          "nmos_sender_id",
+          "nmos_device_id",
+          "nmos_node_label",
+          "nmos_node_description",
+          "nmos_is04_base_url",
+          "nmos_is05_base_url",
+          "nmos_is04_version",
+          "sdp_url",
+          "sdp_cache",
+          "media_type",
+          "redundancy_group",
+          "transport_protocol",
+          "st2110_format",
+          "source_addr_a",
+          "source_port_a",
+          "multicast_addr_a",
+          "group_port_a",
+          "source_addr_b",
+          "source_port_b",
+          "multicast_addr_b",
+          "group_port_b"
+        ],
+      },
+    });
+    await refreshAll();
+    return result;
+  }
+
+  async function checkIS05Receiver(flowId, is05BaseUrl, receiverId) {
+    const result = await api(`/flows/${flowId}/is05/receiver-check`, {
+      method: "POST",
+      token,
+      body: {
+        is05_base_url: is05BaseUrl || "",
+        receiver_id: receiverId || "",
+        timeout_sec: 6
+      }
+    });
+    return result;
   }
 
   async function toggleFlowLock(flow) {
@@ -779,6 +847,7 @@
   async function loadAutomationJobs() {
     if (!(user?.role === "admin" || user?.role === "editor")) return;
     automationJobs = await api("/automation/jobs", { token });
+    automationSummary = await api("/automation/summary", { token }).catch(() => automationSummary);
   }
 
   async function toggleAutomationJob(job, enabled) {
@@ -926,12 +995,20 @@
       registryDevices = devices;
       registrySenders = senders;
       registryReceivers = receivers;
+      registryHealth = await api("/nmos/registry/health", { token }).catch(() => registryHealth);
     } catch (e) {
       console.error("Failed to load NMOS registry", e);
     }
   }
 
+  let realtimeEvents = $state([]);
+  let registryEvents = $state([]);
+
   function handleMQTTEvent(event) {
+    if (event && event.timestamp) {
+      // Prepend newest event, keep max 50
+      realtimeEvents = [event, ...realtimeEvents].slice(0, 50);
+    }
     if (event.event === "created" || event.event === "updated") {
       // Refresh flows if we're on flows view
       if (currentView === "flows" || currentView === "dashboard") {
@@ -956,17 +1033,51 @@
   onMount(() => {
     refreshAll();
     
-    // Connect to MQTT if WebSocket URL is available
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = window.location.hostname;
-    const wsPort = "9001";
-    const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}`;
-    const topicPrefix = "go-nmos/flows/events";
-    
+    // Connect to MQTT using backend realtime config (with graceful fallback)
+    (async () => {
+      try {
+        const cfg = await api("/realtime/config", { token });
+        if (cfg?.mqtt_enabled && cfg.ws_url && cfg.topic_prefix) {
+          connectMQTT(cfg.ws_url, cfg.topic_prefix, handleMQTTEvent);
+          return;
+        }
+      } catch (e) {
+        console.log("Realtime config not available, falling back to default MQTT settings:", e.message);
+      }
+
+      try {
+        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsHost = window.location.hostname;
+        const wsPort = "9001";
+        const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}`;
+        const topicPrefix = "go-nmos/flows/events";
+        connectMQTT(wsUrl, topicPrefix, handleMQTTEvent);
+      } catch (e) {
+        console.log("MQTT connection skipped:", e.message);
+      }
+    })();
+
+    // Connect to registry WebSocket feed (no auth, informational only)
     try {
-      connectMQTT(wsUrl, topicPrefix, handleMQTTEvent);
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      const ws = new WebSocket(`${proto}//${host}/ws/registry`);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          registryEvents = [data, ...registryEvents].slice(0, 50);
+        } catch (e) {
+          console.error("Registry WS parse error:", e);
+        }
+      };
+      ws.onerror = (e) => {
+        console.log("Registry WS error:", e);
+      };
+      ws.onclose = () => {
+        console.log("Registry WS closed");
+      };
     } catch (e) {
-      console.log("MQTT connection skipped:", e.message);
+      console.log("Registry WS connection skipped:", e.message);
     }
   });
 
@@ -976,7 +1087,7 @@
 </script>
 
 <main class="min-h-screen bg-[#0a0d14] text-gray-100">
-  <div class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+    <div class="max-w-7xl mx-auto px-6 py-6 space-y-6">
   <header class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-gray-800">
     <div class="space-y-2">
       <h1 class="text-2xl font-bold tracking-tight text-white">
@@ -1206,7 +1317,15 @@
     </div>
   {:else}
     {#if currentView === "dashboard"}
-      <DashboardHomeView {summary} {flows} {flowTotal} />
+      <DashboardHomeView
+        {summary}
+        {flows}
+        {flowTotal}
+        {realtimeEvents}
+        {registryEvents}
+        {registryHealth}
+        {automationSummary}
+      />
     {/if}
 
     {#if currentView === "flows"}
@@ -1229,6 +1348,9 @@
         onEditFlow={openEditFlowModal}
         onUpdateFlow={updateFlow}
         onCheckFlow={checkFlowNMOS}
+        onFetchSDP={fetchFlowSDP}
+        onSyncFromNMOS={syncFlowFromNMOS}
+        onCheckIS05Receiver={checkIS05Receiver}
         {editingFlow}
       />
     {/if}

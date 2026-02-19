@@ -17,6 +17,14 @@ type PostgresRepository struct {
 	pool *pgxpool.Pool
 }
 
+// FlowListFilters are optional filters for GET /flows (mmam-style subset).
+type FlowListFilters struct {
+	Q            string
+	FlowStatus   string
+	Availability string
+	DataSource   string
+}
+
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
@@ -116,6 +124,19 @@ func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, s
 	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
 	query := fmt.Sprintf(`
 		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+			source_addr_b, source_port_b, multicast_addr_b, group_port_b,
+			COALESCE(nmos_node_id::text, '') AS nmos_node_id,
+			COALESCE(nmos_flow_id::text, '') AS nmos_flow_id,
+			COALESCE(nmos_sender_id::text, '') AS nmos_sender_id,
+			COALESCE(nmos_device_id::text, '') AS nmos_device_id,
+			nmos_node_label, nmos_node_description,
+			nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
+			nmos_is04_base_url, nmos_is05_base_url, nmos_is04_version, nmos_is05_version,
+			nmos_label, nmos_description, management_url,
+			media_type, st2110_format, redundancy_group,
+			data_source, rds_address, rds_api_url, rds_version,
+			sdp_url, sdp_cache,
 			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
 			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows
@@ -134,6 +155,16 @@ func (r *PostgresRepository) ListFlows(ctx context.Context, limit, offset int, s
 		if err := rows.Scan(
 			&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 			&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+			&f.SourceAddrA, &f.SourcePortA, &f.MulticastAddrA, &f.GroupPortA,
+			&f.SourceAddrB, &f.SourcePortB, &f.MulticastAddrB, &f.GroupPortB,
+			&f.NMOSNodeID, &f.NMOSFlowID, &f.NMOSSenderID, &f.NMOSDeviceID,
+			&f.NMOSNodeLabel, &f.NMOSNodeDescription,
+			&f.NMOSIS04Host, &f.NMOSIS04Port, &f.NMOSIS05Host, &f.NMOSIS05Port,
+			&f.NMOSIS04BaseURL, &f.NMOSIS05BaseURL, &f.NMOSIS04Version, &f.NMOSIS05Version,
+			&f.NMOSLabel, &f.NMOSDescription, &f.ManagementURL,
+			&f.MediaType, &f.ST2110Format, &f.RedundancyGroup,
+			&f.DataSource, &f.RDSAddress, &f.RDSAPIURL, &f.RDSVersion,
+			&f.SDPURL, &f.SDPCache,
 			&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
 			&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 		); err != nil {
@@ -148,14 +179,35 @@ func (r *PostgresRepository) SearchFlows(ctx context.Context, query string, limi
 	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
 	sql := fmt.Sprintf(`
 		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+			source_addr_b, source_port_b, multicast_addr_b, group_port_b,
+			COALESCE(nmos_node_id::text, '') AS nmos_node_id,
+			COALESCE(nmos_flow_id::text, '') AS nmos_flow_id,
+			COALESCE(nmos_sender_id::text, '') AS nmos_sender_id,
+			COALESCE(nmos_device_id::text, '') AS nmos_device_id,
+			nmos_node_label, nmos_node_description,
+			nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
+			nmos_is04_base_url, nmos_is05_base_url, nmos_is04_version, nmos_is05_version,
+			nmos_label, nmos_description, management_url,
+			media_type, st2110_format, redundancy_group,
+			data_source, rds_address, rds_api_url, rds_version,
+			sdp_url, sdp_cache,
 			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
 			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows
 		WHERE
 			display_name ILIKE '%%' || $1 || '%%' OR
+			sdp_url ILIKE '%%' || $1 || '%%' OR sdp_cache ILIKE '%%' || $1 || '%%' OR
 			flow_id::text ILIKE '%%' || $1 || '%%' OR
 			multicast_ip ILIKE '%%' || $1 || '%%' OR
 			source_ip ILIKE '%%' || $1 || '%%' OR
+			source_addr_a ILIKE '%%' || $1 || '%%' OR multicast_addr_a ILIKE '%%' || $1 || '%%' OR
+			source_addr_b ILIKE '%%' || $1 || '%%' OR multicast_addr_b ILIKE '%%' || $1 || '%%' OR
+			COALESCE(nmos_node_id::text, '') ILIKE '%%' || $1 || '%%' OR
+			COALESCE(nmos_flow_id::text, '') ILIKE '%%' || $1 || '%%' OR
+			COALESCE(nmos_sender_id::text, '') ILIKE '%%' || $1 || '%%' OR
+			COALESCE(nmos_device_id::text, '') ILIKE '%%' || $1 || '%%' OR
+			nmos_node_label ILIKE '%%' || $1 || '%%' OR nmos_node_description ILIKE '%%' || $1 || '%%' OR
 			note ILIKE '%%' || $1 || '%%' OR
 			alias_1 ILIKE '%%' || $1 || '%%' OR alias_2 ILIKE '%%' || $1 || '%%' OR alias_3 ILIKE '%%' || $1 || '%%' OR alias_4 ILIKE '%%' || $1 || '%%' OR
 			alias_5 ILIKE '%%' || $1 || '%%' OR alias_6 ILIKE '%%' || $1 || '%%' OR alias_7 ILIKE '%%' || $1 || '%%' OR alias_8 ILIKE '%%' || $1 || '%%' OR
@@ -176,6 +228,16 @@ func (r *PostgresRepository) SearchFlows(ctx context.Context, query string, limi
 		if err := rows.Scan(
 			&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 			&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+			&f.SourceAddrA, &f.SourcePortA, &f.MulticastAddrA, &f.GroupPortA,
+			&f.SourceAddrB, &f.SourcePortB, &f.MulticastAddrB, &f.GroupPortB,
+			&f.NMOSNodeID, &f.NMOSFlowID, &f.NMOSSenderID, &f.NMOSDeviceID,
+			&f.NMOSNodeLabel, &f.NMOSNodeDescription,
+			&f.NMOSIS04Host, &f.NMOSIS04Port, &f.NMOSIS05Host, &f.NMOSIS05Port,
+			&f.NMOSIS04BaseURL, &f.NMOSIS05BaseURL, &f.NMOSIS04Version, &f.NMOSIS05Version,
+			&f.NMOSLabel, &f.NMOSDescription, &f.ManagementURL,
+			&f.MediaType, &f.ST2110Format, &f.RedundancyGroup,
+			&f.DataSource, &f.RDSAddress, &f.RDSAPIURL, &f.RDSVersion,
+			&f.SDPURL, &f.SDPCache,
 			&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
 			&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 		); err != nil {
@@ -204,6 +266,138 @@ func (r *PostgresRepository) CountFlows(ctx context.Context) (int, error) {
 	var total int
 	err := r.pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM flows`).Scan(&total)
 	return total, err
+}
+
+func (r *PostgresRepository) CountFlowsFiltered(ctx context.Context, f FlowListFilters) (int, error) {
+	where := []string{"1=1"}
+	args := []any{}
+	i := 1
+
+	if s := strings.TrimSpace(f.FlowStatus); s != "" {
+		where = append(where, fmt.Sprintf("flow_status = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if s := strings.TrimSpace(f.Availability); s != "" {
+		where = append(where, fmt.Sprintf("availability = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if s := strings.TrimSpace(f.DataSource); s != "" {
+		where = append(where, fmt.Sprintf("data_source = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if q := strings.TrimSpace(f.Q); q != "" {
+		where = append(where, fmt.Sprintf(`(
+			display_name ILIKE '%%' || $%d || '%%' OR
+			flow_id::text ILIKE '%%' || $%d || '%%' OR
+			multicast_ip ILIKE '%%' || $%d || '%%' OR
+			source_ip ILIKE '%%' || $%d || '%%' OR
+			note ILIKE '%%' || $%d || '%%' OR
+			sdp_url ILIKE '%%' || $%d || '%%'
+		)`, i, i, i, i, i, i))
+		args = append(args, q)
+		i++
+	}
+
+	var total int
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM flows WHERE %s`, strings.Join(where, " AND ")), args...).Scan(&total)
+	return total, err
+}
+
+func (r *PostgresRepository) ListFlowsFiltered(ctx context.Context, filters FlowListFilters, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error) {
+	sortBy, sortOrder = normalizeFlowSort(sortBy, sortOrder)
+	where := []string{"1=1"}
+	args := []any{}
+	i := 1
+
+	if s := strings.TrimSpace(filters.FlowStatus); s != "" {
+		where = append(where, fmt.Sprintf("flow_status = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if s := strings.TrimSpace(filters.Availability); s != "" {
+		where = append(where, fmt.Sprintf("availability = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if s := strings.TrimSpace(filters.DataSource); s != "" {
+		where = append(where, fmt.Sprintf("data_source = $%d", i))
+		args = append(args, s)
+		i++
+	}
+	if q := strings.TrimSpace(filters.Q); q != "" {
+		where = append(where, fmt.Sprintf(`(
+			display_name ILIKE '%%' || $%d || '%%' OR
+			flow_id::text ILIKE '%%' || $%d || '%%' OR
+			multicast_ip ILIKE '%%' || $%d || '%%' OR
+			source_ip ILIKE '%%' || $%d || '%%' OR
+			note ILIKE '%%' || $%d || '%%' OR
+			sdp_url ILIKE '%%' || $%d || '%%'
+		)`, i, i, i, i, i, i))
+		args = append(args, q)
+		i++
+	}
+
+	// pagination args
+	args = append(args, limit, offset)
+	limitArg := i
+	offsetArg := i + 1
+
+	query := fmt.Sprintf(`
+		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+			source_addr_b, source_port_b, multicast_addr_b, group_port_b,
+			COALESCE(nmos_node_id::text, '') AS nmos_node_id,
+			COALESCE(nmos_flow_id::text, '') AS nmos_flow_id,
+			COALESCE(nmos_sender_id::text, '') AS nmos_sender_id,
+			COALESCE(nmos_device_id::text, '') AS nmos_device_id,
+			nmos_node_label, nmos_node_description,
+			nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
+			nmos_is04_base_url, nmos_is05_base_url, nmos_is04_version, nmos_is05_version,
+			nmos_label, nmos_description, management_url,
+			media_type, st2110_format, redundancy_group,
+			data_source, rds_address, rds_api_url, rds_version,
+			sdp_url, sdp_cache,
+			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
+			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
+		FROM flows
+		WHERE %s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d
+	`, strings.Join(where, " AND "), sortBy, sortOrder, limitArg, offsetArg)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var flows []models.Flow
+	for rows.Next() {
+		var f models.Flow
+		if err := rows.Scan(
+			&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
+			&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+			&f.SourceAddrA, &f.SourcePortA, &f.MulticastAddrA, &f.GroupPortA,
+			&f.SourceAddrB, &f.SourcePortB, &f.MulticastAddrB, &f.GroupPortB,
+			&f.NMOSNodeID, &f.NMOSFlowID, &f.NMOSSenderID, &f.NMOSDeviceID,
+			&f.NMOSNodeLabel, &f.NMOSNodeDescription,
+			&f.NMOSIS04Host, &f.NMOSIS04Port, &f.NMOSIS05Host, &f.NMOSIS05Port,
+			&f.NMOSIS04BaseURL, &f.NMOSIS05BaseURL, &f.NMOSIS04Version, &f.NMOSIS05Version,
+			&f.NMOSLabel, &f.NMOSDescription, &f.ManagementURL,
+			&f.MediaType, &f.ST2110Format, &f.RedundancyGroup,
+			&f.DataSource, &f.RDSAddress, &f.RDSAPIURL, &f.RDSVersion,
+			&f.SDPURL, &f.SDPCache,
+			&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
+			&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
+		); err != nil {
+			return nil, err
+		}
+		flows = append(flows, f)
+	}
+	return flows, rows.Err()
 }
 
 func (r *PostgresRepository) CountSearchFlows(ctx context.Context, query string) (int, error) {
@@ -256,9 +450,10 @@ func (r *PostgresRepository) ImportFlows(ctx context.Context, flows []models.Flo
 
 		_, err := tx.Exec(ctx, `
 			INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol,
+				sdp_url, sdp_cache,
 				alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
 				user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
 			ON CONFLICT (flow_id) DO UPDATE SET
 				display_name = EXCLUDED.display_name,
 				multicast_ip = EXCLUDED.multicast_ip,
@@ -269,12 +464,14 @@ func (r *PostgresRepository) ImportFlows(ctx context.Context, flows []models.Flo
 				locked = EXCLUDED.locked,
 				note = EXCLUDED.note,
 				transport_protocol = EXCLUDED.transport_protocol,
+				sdp_url = EXCLUDED.sdp_url, sdp_cache = EXCLUDED.sdp_cache,
 				alias_1 = EXCLUDED.alias_1, alias_2 = EXCLUDED.alias_2, alias_3 = EXCLUDED.alias_3, alias_4 = EXCLUDED.alias_4,
 				alias_5 = EXCLUDED.alias_5, alias_6 = EXCLUDED.alias_6, alias_7 = EXCLUDED.alias_7, alias_8 = EXCLUDED.alias_8,
 				user_field_1 = EXCLUDED.user_field_1, user_field_2 = EXCLUDED.user_field_2, user_field_3 = EXCLUDED.user_field_3, user_field_4 = EXCLUDED.user_field_4,
 				user_field_5 = EXCLUDED.user_field_5, user_field_6 = EXCLUDED.user_field_6, user_field_7 = EXCLUDED.user_field_7, user_field_8 = EXCLUDED.user_field_8,
 				updated_at = NOW()
 		`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto,
+			flow.SDPURL, flow.SDPCache,
 			flow.Alias1, flow.Alias2, flow.Alias3, flow.Alias4, flow.Alias5, flow.Alias6, flow.Alias7, flow.Alias8,
 			flow.UserField1, flow.UserField2, flow.UserField3, flow.UserField4, flow.UserField5, flow.UserField6, flow.UserField7, flow.UserField8)
 		if err != nil {
@@ -838,12 +1035,47 @@ func (r *PostgresRepository) UpsertNMOSReceiver(ctx context.Context, rec models.
 func (r *PostgresRepository) CreateFlow(ctx context.Context, flow models.Flow) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO flows(flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol,
+		INSERT INTO flows(
+			flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, transport_protocol,
+			source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+			source_addr_b, source_port_b, multicast_addr_b, group_port_b,
+			nmos_node_id, nmos_flow_id, nmos_sender_id, nmos_device_id,
+			nmos_node_label, nmos_node_description,
+			nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
+			nmos_is04_base_url, nmos_is05_base_url, nmos_is04_version, nmos_is05_version,
+			nmos_label, nmos_description, management_url,
+			media_type, st2110_format, redundancy_group,
+			data_source, rds_address, rds_api_url, rds_version,
+			sdp_url, sdp_cache,
 			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
 			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+		VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+			$11,$12,$13,$14,
+			$15,$16,$17,$18,
+			NULLIF($19,'')::uuid, NULLIF($20,'')::uuid, NULLIF($21,'')::uuid, NULLIF($22,'')::uuid,
+			$23,$24,
+			$25,$26,$27,$28,
+			$29,$30,$31,$32,
+			$33,$34,$35,
+			$36,$37,$38,
+			$39,$40,$41,$42,
+			$43,$44,
+			$45,$46,$47,$48,$49,$50,$51,$52,
+			$53,$54,$55,$56,$57,$58,$59,$60
+		)
 		RETURNING id
 	`, flow.FlowID, flow.DisplayName, flow.MulticastIP, flow.SourceIP, flow.Port, flow.FlowStatus, flow.Availability, flow.Locked, flow.Note, flow.TransportProto,
+		flow.SourceAddrA, flow.SourcePortA, flow.MulticastAddrA, flow.GroupPortA,
+		flow.SourceAddrB, flow.SourcePortB, flow.MulticastAddrB, flow.GroupPortB,
+		flow.NMOSNodeID, flow.NMOSFlowID, flow.NMOSSenderID, flow.NMOSDeviceID,
+		flow.NMOSNodeLabel, flow.NMOSNodeDescription,
+		flow.NMOSIS04Host, flow.NMOSIS04Port, flow.NMOSIS05Host, flow.NMOSIS05Port,
+		flow.NMOSIS04BaseURL, flow.NMOSIS05BaseURL, flow.NMOSIS04Version, flow.NMOSIS05Version,
+		flow.NMOSLabel, flow.NMOSDescription, flow.ManagementURL,
+		flow.MediaType, flow.ST2110Format, flow.RedundancyGroup,
+		flow.DataSource, flow.RDSAddress, flow.RDSAPIURL, flow.RDSVersion,
+		flow.SDPURL, flow.SDPCache,
 		flow.Alias1, flow.Alias2, flow.Alias3, flow.Alias4, flow.Alias5, flow.Alias6, flow.Alias7, flow.Alias8,
 		flow.UserField1, flow.UserField2, flow.UserField3, flow.UserField4, flow.UserField5, flow.UserField6, flow.UserField7, flow.UserField8).Scan(&id)
 	return id, err
@@ -853,12 +1085,35 @@ func (r *PostgresRepository) GetFlowByID(ctx context.Context, id int64) (*models
 	var f models.Flow
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, flow_id, display_name, multicast_ip, source_ip, port, flow_status, availability, locked, note, updated_at, last_seen, transport_protocol,
+			source_addr_a, source_port_a, multicast_addr_a, group_port_a,
+			source_addr_b, source_port_b, multicast_addr_b, group_port_b,
+			COALESCE(nmos_node_id::text, '') AS nmos_node_id,
+			COALESCE(nmos_flow_id::text, '') AS nmos_flow_id,
+			COALESCE(nmos_sender_id::text, '') AS nmos_sender_id,
+			COALESCE(nmos_device_id::text, '') AS nmos_device_id,
+			nmos_node_label, nmos_node_description,
+			nmos_is04_host, nmos_is04_port, nmos_is05_host, nmos_is05_port,
+			nmos_is04_base_url, nmos_is05_base_url, nmos_is04_version, nmos_is05_version,
+			nmos_label, nmos_description, management_url,
+			media_type, st2110_format, redundancy_group,
+			data_source, rds_address, rds_api_url, rds_version,
+			sdp_url, sdp_cache,
 			alias_1, alias_2, alias_3, alias_4, alias_5, alias_6, alias_7, alias_8,
 			user_field_1, user_field_2, user_field_3, user_field_4, user_field_5, user_field_6, user_field_7, user_field_8
 		FROM flows WHERE id = $1
 	`, id).Scan(
 		&f.ID, &f.FlowID, &f.DisplayName, &f.MulticastIP, &f.SourceIP, &f.Port,
 		&f.FlowStatus, &f.Availability, &f.Locked, &f.Note, &f.UpdatedAt, &f.LastSeen, &f.TransportProto,
+		&f.SourceAddrA, &f.SourcePortA, &f.MulticastAddrA, &f.GroupPortA,
+		&f.SourceAddrB, &f.SourcePortB, &f.MulticastAddrB, &f.GroupPortB,
+		&f.NMOSNodeID, &f.NMOSFlowID, &f.NMOSSenderID, &f.NMOSDeviceID,
+		&f.NMOSNodeLabel, &f.NMOSNodeDescription,
+		&f.NMOSIS04Host, &f.NMOSIS04Port, &f.NMOSIS05Host, &f.NMOSIS05Port,
+		&f.NMOSIS04BaseURL, &f.NMOSIS05BaseURL, &f.NMOSIS04Version, &f.NMOSIS05Version,
+		&f.NMOSLabel, &f.NMOSDescription, &f.ManagementURL,
+		&f.MediaType, &f.ST2110Format, &f.RedundancyGroup,
+		&f.DataSource, &f.RDSAddress, &f.RDSAPIURL, &f.RDSVersion,
+		&f.SDPURL, &f.SDPCache,
 		&f.Alias1, &f.Alias2, &f.Alias3, &f.Alias4, &f.Alias5, &f.Alias6, &f.Alias7, &f.Alias8,
 		&f.UserField1, &f.UserField2, &f.UserField3, &f.UserField4, &f.UserField5, &f.UserField6, &f.UserField7, &f.UserField8,
 	)
@@ -870,31 +1125,71 @@ func (r *PostgresRepository) GetFlowByID(ctx context.Context, id int64) (*models
 
 func (r *PostgresRepository) PatchFlow(ctx context.Context, id int64, updates map[string]any) error {
 	allowed := map[string]bool{
-		"display_name":       true,
-		"multicast_ip":       true,
-		"source_ip":          true,
-		"port":               true,
-		"flow_status":        true,
-		"availability":       true,
-		"locked":             true,
-		"note":               true,
-		"transport_protocol": true,
-		"alias_1":            true,
-		"alias_2":            true,
-		"alias_3":            true,
-		"alias_4":            true,
-		"alias_5":            true,
-		"alias_6":            true,
-		"alias_7":            true,
-		"alias_8":            true,
-		"user_field_1":       true,
-		"user_field_2":       true,
-		"user_field_3":       true,
-		"user_field_4":       true,
-		"user_field_5":       true,
-		"user_field_6":       true,
-		"user_field_7":       true,
-		"user_field_8":       true,
+		"display_name":          true,
+		"multicast_ip":          true,
+		"source_ip":             true,
+		"port":                  true,
+		"flow_status":           true,
+		"availability":          true,
+		"locked":                true,
+		"note":                  true,
+		"transport_protocol":    true,
+		"source_addr_a":         true,
+		"source_port_a":         true,
+		"multicast_addr_a":      true,
+		"group_port_a":          true,
+		"source_addr_b":         true,
+		"source_port_b":         true,
+		"multicast_addr_b":      true,
+		"group_port_b":          true,
+		"nmos_node_id":          true,
+		"nmos_flow_id":          true,
+		"nmos_sender_id":        true,
+		"nmos_device_id":        true,
+		"nmos_node_label":       true,
+		"nmos_node_description": true,
+		"nmos_is04_host":        true,
+		"nmos_is04_port":        true,
+		"nmos_is05_host":        true,
+		"nmos_is05_port":        true,
+		"nmos_is04_base_url":    true,
+		"nmos_is05_base_url":    true,
+		"nmos_is04_version":     true,
+		"nmos_is05_version":     true,
+		"nmos_label":            true,
+		"nmos_description":      true,
+		"management_url":        true,
+		"media_type":            true,
+		"st2110_format":         true,
+		"redundancy_group":      true,
+		"data_source":           true,
+		"rds_address":           true,
+		"rds_api_url":           true,
+		"rds_version":           true,
+		"sdp_url":               true,
+		"sdp_cache":             true,
+		"alias_1":               true,
+		"alias_2":               true,
+		"alias_3":               true,
+		"alias_4":               true,
+		"alias_5":               true,
+		"alias_6":               true,
+		"alias_7":               true,
+		"alias_8":               true,
+		"user_field_1":          true,
+		"user_field_2":          true,
+		"user_field_3":          true,
+		"user_field_4":          true,
+		"user_field_5":          true,
+		"user_field_6":          true,
+		"user_field_7":          true,
+		"user_field_8":          true,
+	}
+	uuidCols := map[string]bool{
+		"nmos_node_id":   true,
+		"nmos_flow_id":   true,
+		"nmos_sender_id": true,
+		"nmos_device_id": true,
 	}
 
 	setClauses := []string{}
@@ -904,7 +1199,12 @@ func (r *PostgresRepository) PatchFlow(ctx context.Context, id int64, updates ma
 		if !allowed[key] {
 			continue
 		}
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, i))
+		if uuidCols[key] {
+			// Allow passing UUIDs as strings; empty string clears the value.
+			setClauses = append(setClauses, fmt.Sprintf("%s = NULLIF($%d,'')::uuid", key, i))
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, i))
+		}
 		args = append(args, value)
 		i++
 	}

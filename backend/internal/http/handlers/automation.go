@@ -30,10 +30,47 @@ func (h *Handler) GetAutomationSummary(w http.ResponseWriter, r *http.Request) {
 			enabled++
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]int{
-		"total_jobs":   len(jobs),
-		"enabled_jobs": enabled,
-	})
+	// Include latest checker results (collisions & nmos difference count) if available
+	collisions, _ := h.repo.GetLatestCheckerResult(r.Context(), "collisions")
+	nmosDiff, _ := h.repo.GetLatestCheckerResult(r.Context(), "nmos")
+
+	type summary struct {
+		TotalJobs           int    `json:"total_jobs"`
+		EnabledJobs         int    `json:"enabled_jobs"`
+		CollisionCount      int    `json:"collision_count"`
+		NMOSDifferenceCount int    `json:"nmos_difference_count"`
+		LastUpdated         string `json:"last_updated,omitempty"`
+	}
+
+	resp := summary{
+		TotalJobs:   len(jobs),
+		EnabledJobs: enabled,
+	}
+
+	if collisions != nil && len(collisions.Result) > 0 {
+		// collisions.Result is JSON; for dashboard we only expose "total groups"
+		// { "groups": [ ... ] } → collision_count = len(groups)
+		var payload map[string]any
+		if err := json.Unmarshal(collisions.Result, &payload); err == nil {
+			if groups, ok := payload["groups"].([]any); ok {
+				resp.CollisionCount = len(groups)
+				resp.LastUpdated = collisions.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
+			}
+		}
+	}
+	if nmosDiff != nil && len(nmosDiff.Result) > 0 {
+		var payload map[string]any
+		if err := json.Unmarshal(nmosDiff.Result, &payload); err == nil {
+			if n, ok := payload["difference_count"].(float64); ok {
+				resp.NMOSDifferenceCount = int(n)
+				if resp.LastUpdated == "" {
+					resp.LastUpdated = nmosDiff.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) PutAutomationJob(w http.ResponseWriter, r *http.Request) {

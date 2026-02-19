@@ -15,6 +15,8 @@ type Repository interface {
 
 	ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error)
 	CountFlows(ctx context.Context) (int, error)
+	ListFlowsFiltered(ctx context.Context, filters FlowListFilters, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error)
+	CountFlowsFiltered(ctx context.Context, filters FlowListFilters) (int, error)
 	SearchFlows(ctx context.Context, query string, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error)
 	CountSearchFlows(ctx context.Context, query string) (int, error)
 	GetFlowSummary(ctx context.Context) (models.FlowSummary, error)
