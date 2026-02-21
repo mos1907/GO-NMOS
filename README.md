@@ -6,6 +6,24 @@ Production-oriented rewrite baseline of NMOS management stack using **Go + Svelt
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
 [![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte)](https://svelte.dev/)
 
+This project is developed as a **practical companion** to the article [**AMWA NMOS: Building the Control Plane for SMPTE ST 2110 with Go**](https://muratdemirci.com.tr/en/amwa-nmos/). The article covers IS-04, IS-05, IS-06, IS-08, IS-09, migration from SDI to NMOS, and production patterns; GO-NMOS continues to evolve as an implementation of those concepts (controller, registry integration, topology, automation, and TV campus roadmap).
+
+---
+
+### Keywords & topics (for search and GitHub discovery)
+
+**#nmos** **#amwa** **#is04** **#is05** **#st2110** **#broadcast** **#iptv** **#media-orchestration** **#video-routing** **#nmoscntroller** **#go** **#svelte** **#postgresql** **#docker**
+
+| Category | Keywords |
+|----------|----------|
+| **Standards** | NMOS, AMWA, IS-04, IS-05, IS-08, IS-09, BCP-003, ST 2110, SMPTE 2110, Session Description Protocol, SDP |
+| **Use case** | Broadcast control, TV campus, media orchestration, IP video routing, multicast flow management, MCR, playout |
+| **Tech** | Go, Golang, Svelte, PostgreSQL, MQTT, Docker, REST API, JWT |
+
+*Tip: On GitHub, add these as **Repository topics** (repo → About → ⚙️ → Topics) so the repo appears in topic searches.*
+
+---
+
 ## Stack
 
 - Backend: Go 1.22, chi router, JWT auth, PostgreSQL (pgx)
