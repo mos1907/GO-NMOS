@@ -24,7 +24,7 @@
       id: "registry",
       title: "4. NMOS Registry & Nodes",
       description: "Verify that the IS-04 registry and your first NMOS nodes are registered correctly.",
-      hint: "Use the Topology and Registry Events panels to track node/device/flow counts and events.",
+      hint: "Use the Registry & Patch and Registry Events panels to track node/device/flow counts and events.",
     },
     {
       id: "flows",

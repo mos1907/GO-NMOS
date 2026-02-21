@@ -56,6 +56,7 @@ type Flow struct {
 	// Media info
 	MediaType       string `json:"media_type,omitempty"`
 	ST2110Format    string `json:"st2110_format,omitempty"`
+	FormatSummary   string `json:"format_summary,omitempty"` // e.g. 1080i50, 1080p25, L24/48k
 	RedundancyGroup string `json:"redundancy_group,omitempty"`
 	// Data source tracking (manual/nmos/rds)
 	DataSource string `json:"data_source,omitempty"`
@@ -83,6 +84,10 @@ type Flow struct {
 	UserField6 string `json:"user_field_6,omitempty"`
 	UserField7 string `json:"user_field_7,omitempty"`
 	UserField8 string `json:"user_field_8,omitempty"`
+	// SDN / IS-06: optional path id from network controller
+	SDNPathID string `json:"sdn_path_id,omitempty"`
+	// Planner integration: bucket assignment
+	BucketID *int64 `json:"bucket_id,omitempty"`
 }
 
 type FlowSummary struct {
@@ -98,6 +103,12 @@ type CollisionGroup struct {
 	Port        int      `json:"port"`
 	Count       int      `json:"count"`
 	FlowNames   []string `json:"flow_names"`
+}
+
+type AlternativeSuggestion struct {
+	MulticastIP string `json:"multicast_ip"`
+	Port        int    `json:"port"`
+	Reason      string `json:"reason"` // e.g., "same_subnet_available", "different_port", "different_subnet"
 }
 
 type CheckerResult struct {
@@ -116,6 +127,61 @@ type AutomationJob struct {
 	LastRunStatus string          `json:"last_run_status,omitempty"`
 	LastRunResult json.RawMessage `json:"last_run_result,omitempty"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	// NextRunAt is computed when returning jobs (not persisted)
+	NextRunAt *time.Time `json:"next_run_at,omitempty"`
+}
+
+// Playbook represents a reusable operational workflow (E.1).
+type Playbook struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	Steps        json.RawMessage `json:"steps"`        // Array of action steps
+	Parameters   json.RawMessage `json:"parameters"`   // Parameter definitions
+	AllowedRoles []string        `json:"allowed_roles"` // E.3: Which roles can execute this playbook
+	Enabled      bool            `json:"enabled"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
+// PlaybookExecution represents a playbook execution run (E.1).
+type PlaybookExecution struct {
+	ID         int64           `json:"id"`
+	PlaybookID string          `json:"playbook_id"`
+	Parameters json.RawMessage `json:"parameters"` // Actual parameter values used
+	Status     string          `json:"status"`     // "running" | "success" | "error"
+	Result     json.RawMessage `json:"result,omitempty"`
+	StartedAt  time.Time       `json:"started_at"`
+	CompletedAt *time.Time     `json:"completed_at,omitempty"`
+}
+
+// ScheduledPlaybookExecution represents a scheduled playbook execution (E.2).
+type ScheduledPlaybookExecution struct {
+	ID          int64           `json:"id"`
+	PlaybookID  string          `json:"playbook_id"`
+	Parameters  json.RawMessage `json:"parameters"` // Parameter values for execution
+	ScheduledAt time.Time       `json:"scheduled_at"`
+	ExecutedAt  *time.Time      `json:"executed_at,omitempty"`
+	Status      string          `json:"status"` // "pending" | "executed" | "failed" | "cancelled"
+	ExecutionID *int64          `json:"execution_id,omitempty"` // Link to playbook_executions
+	CreatedBy   string          `json:"created_by,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// MaintenanceWindow represents a maintenance period (E.2).
+type MaintenanceWindow struct {
+	ID              int64     `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	StartTime       time.Time `json:"start_time"`
+	EndTime         time.Time `json:"end_time"`
+	RoutingPolicyID *int64   `json:"routing_policy_id,omitempty"` // Policy to apply during maintenance
+	Enabled         bool      `json:"enabled"`
+	CreatedBy       string    `json:"created_by,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type AddressBucket struct {
@@ -131,4 +197,123 @@ type AddressBucket struct {
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type BucketUsageStats struct {
+	BucketID        int64   `json:"bucket_id"`
+	TotalIPs        int     `json:"total_ips"`        // Total IPs in the bucket range
+	UsedIPs         int     `json:"used_ips"`         // IPs currently used by flows
+	AvailableIPs    int     `json:"available_ips"`   // Available IPs
+	UsagePercentage float64 `json:"usage_percentage"` // Usage percentage (0-100)
+	UsedFlowCount   int     `json:"used_flow_count"` // Number of flows using IPs in this bucket
+}
+
+// RegistryConfig represents a configured external IS-04 Query API ("registry").
+// These are stored as a JSON array in the settings table under the
+// "nmos_registry_config" key so that the controller and UI can share them.
+type RegistryConfig struct {
+	Name     string `json:"name"`      // Human-friendly label, e.g. "Core Registry"
+	QueryURL string `json:"query_url"` // Root or /x-nmos/query URL
+	Role     string `json:"role"`      // prod | lab | remote | other free-form tag
+	Enabled  bool   `json:"enabled"`   // Whether this registry should be used in UI/workflows
+}
+
+// ReceiverConnection represents the current connection state of an NMOS receiver (IS-05).
+// B.1: Tracks staged vs active, master vs backup flows, and change metadata.
+type ReceiverConnection struct {
+	ID         int64           `json:"id"`
+	ReceiverID string          `json:"receiver_id"` // NMOS receiver ID (IS-04)
+	State      string          `json:"state"`       // "staged" | "active"
+	Role       string          `json:"role"`        // "master" | "backup"
+	SenderID   string          `json:"sender_id"`   // NMOS sender ID (IS-04)
+	FlowID     *int64          `json:"flow_id,omitempty"` // Optional link to internal flow
+	ChangedAt  time.Time       `json:"changed_at"`
+	ChangedBy  string          `json:"changed_by,omitempty"` // Username
+	Metadata   json.RawMessage `json:"metadata,omitempty"`   // Extensible: transport_params, etc.
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
+// ReceiverConnectionHistory represents a historical record of receiver connection changes.
+// Used for audit trail and showing previous connections in UI.
+type ReceiverConnectionHistory struct {
+	ID         int64           `json:"id"`
+	ReceiverID string          `json:"receiver_id"`
+	State      string          `json:"state"` // "staged" | "active"
+	Role       string          `json:"role"`  // "master" | "backup"
+	SenderID   string          `json:"sender_id"`
+	FlowID     *int64          `json:"flow_id,omitempty"`
+	ChangedAt  time.Time       `json:"changed_at"`
+	ChangedBy  string          `json:"changed_by,omitempty"`
+	Action     string          `json:"action"` // "connect" | "disconnect" | "update"
+	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// ScheduledActivation represents a time-based IS-05 patch/take operation (B.2).
+// Scheduled activations are executed by a background scheduler service.
+type ScheduledActivation struct {
+	ID          int64           `json:"id"`
+	FlowID      int64           `json:"flow_id"`      // Internal flow ID
+	ReceiverIDs []string        `json:"receiver_ids"` // Array of NMOS receiver IDs
+	IS05BaseURL string          `json:"is05_base_url"`
+	SenderID    string          `json:"sender_id,omitempty"`
+	ScheduledAt time.Time       `json:"scheduled_at"` // When to execute
+	ExecutedAt  *time.Time      `json:"executed_at,omitempty"` // When executed (NULL = pending)
+	Status      string          `json:"status"`       // "pending" | "executed" | "failed" | "cancelled"
+	Mode        string          `json:"mode"`        // "immediate" | "safe_switch"
+	CreatedBy   string          `json:"created_by,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"` // Bulk patch result
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
+// RoutingPolicy represents a routing policy rule (B.3).
+// Policies define allowed/forbidden source-destination pairs, path requirements, and constraints.
+type RoutingPolicy struct {
+	ID                 int64           `json:"id"`
+	Name               string          `json:"name"`
+	PolicyType         string          `json:"policy_type"` // "allowed_pair" | "forbidden_pair" | "path_requirement" | "constraint"
+	Enabled            bool            `json:"enabled"`
+	SourcePattern      string          `json:"source_pattern,omitempty"`      // e.g. "sender:*", "flow:test-*"
+	DestinationPattern string          `json:"destination_pattern,omitempty"` // e.g. "receiver:*", "device:TX-*"
+	RequirePathA       bool            `json:"require_path_a,omitempty"`
+	RequirePathB       bool            `json:"require_path_b,omitempty"`
+	ConstraintField    string          `json:"constraint_field,omitempty"`    // e.g. "format", "site", "room"
+	ConstraintValue    string          `json:"constraint_value,omitempty"`    // e.g. "test", "TX"
+	ConstraintOperator string          `json:"constraint_operator,omitempty"` // "equals" | "contains" | "starts_with" | "ends_with"
+	Description        string          `json:"description,omitempty"`
+	Priority           int             `json:"priority"` // Lower = higher priority
+	CreatedBy          string          `json:"created_by,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+// RoutingPolicyAudit represents an audit log entry for policy checks (B.3).
+type RoutingPolicyAudit struct {
+	ID             int64           `json:"id"`
+	PolicyID       *int64          `json:"policy_id,omitempty"`
+	Action         string          `json:"action"` // "check" | "violation" | "override" | "allowed"
+	SourceID       string          `json:"source_id,omitempty"`
+	DestinationID  string          `json:"destination_id,omitempty"`
+	FlowID         *int64          `json:"flow_id,omitempty"`
+	ViolationReason string         `json:"violation_reason,omitempty"`
+	OverriddenBy   string          `json:"overridden_by,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// Event represents an event/tally record (C.3 IS-07 style). Stored for filtering and correlation with flows/senders/receivers.
+type Event struct {
+	ID         int64           `json:"id"`
+	SourceURL  string          `json:"source_url,omitempty"`
+	SourceID   string          `json:"source_id,omitempty"`
+	Severity   string          `json:"severity"` // info | warning | error | critical
+	Message    string          `json:"message"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	FlowID     string          `json:"flow_id,omitempty"`
+	SenderID   string          `json:"sender_id,omitempty"`
+	ReceiverID string          `json:"receiver_id,omitempty"`
+	JobID      string          `json:"job_id,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
 }

@@ -1,6 +1,8 @@
 <script>
+  import { onMount } from 'svelte';
   import EmptyState from "./EmptyState.svelte";
   import { IconDownload, IconUpload, IconPlus } from "../lib/icons.js";
+  import { api } from "../lib/api.js";
 
   let {
     plannerRoots = [],
@@ -10,6 +12,7 @@
     newPlannerChild,
     canEdit = false,
     isAdmin = false,
+    token = "",
     onSelectPlannerRoot,
     onPlannerQuickEdit,
     onPlannerDelete,
@@ -22,6 +25,37 @@
   // Ensure arrays are never null (reactive)
   let safePlannerRoots = $derived(plannerRoots || []);
   let safePlannerChildren = $derived(plannerChildren || []);
+
+  // Usage statistics for buckets
+  let bucketStats = $state(new Map());
+
+  async function loadBucketStats(bucketId) {
+    if (!bucketId || !token) return;
+    try {
+      const stats = await api(`/address/buckets/${bucketId}/usage`, { token });
+      bucketStats.set(bucketId, stats);
+    } catch (e) {
+      console.error('Failed to load bucket stats:', e);
+    }
+  }
+
+  // Load stats for all children when selected root changes
+  $effect(() => {
+    if (selectedPlannerRoot && safePlannerChildren.length > 0) {
+      safePlannerChildren.forEach(child => {
+        if (child.id) {
+          loadBucketStats(child.id);
+        }
+      });
+    }
+  });
+
+  function getUsageColor(percentage) {
+    if (percentage >= 90) return 'bg-red-500';
+    if (percentage >= 70) return 'bg-yellow-500';
+    if (percentage >= 50) return 'bg-blue-500';
+    return 'bg-green-500';
+  }
 </script>
 
 <section class="mt-4 space-y-4">
@@ -84,6 +118,7 @@
                 <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Name</th>
                 <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Type</th>
                 <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">CIDR</th>
+                <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Usage</th>
                 <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Description</th>
                 {#if canEdit}
                   <th class="text-left border-b border-gray-800 px-3 py-2 font-medium text-gray-200">Action</th>
@@ -92,6 +127,7 @@
             </thead>
             <tbody class="divide-y divide-gray-800">
               {#each safePlannerChildren as item}
+                {@const stats = bucketStats.get(item.id)}
                 <tr class="hover:bg-gray-800/70 transition-colors">
                   <td class="px-3 py-2 text-gray-100 font-medium">{item.name}</td>
                   <td class="px-3 py-2">
@@ -104,6 +140,31 @@
                     </span>
                   </td>
                   <td class="px-3 py-2 text-gray-300 text-[11px]">{item.cidr}</td>
+                  <td class="px-3 py-2">
+                    {#if stats}
+                      <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                          <div class="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div
+                              class={`h-full ${getUsageColor(stats.usage_percentage)}`}
+                              style="width: {Math.min(stats.usage_percentage, 100)}%"
+                            ></div>
+                          </div>
+                          <span class="text-[10px] text-gray-400 min-w-[45px] text-right">
+                            {stats.usage_percentage.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div class="text-[9px] text-gray-500">
+                          {stats.used_ips || 0} / {stats.total_ips || 0} IPs
+                          {#if stats.used_flow_count > 0}
+                            <span class="ml-1">({stats.used_flow_count} flows)</span>
+                          {/if}
+                        </div>
+                      </div>
+                    {:else}
+                      <span class="text-[10px] text-gray-500">-</span>
+                    {/if}
+                  </td>
                   <td class="px-3 py-2 text-gray-400 text-[11px]">{item.description || "-"}</td>
                   {#if canEdit}
                     <td class="px-3 py-2">

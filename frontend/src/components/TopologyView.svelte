@@ -1,202 +1,142 @@
 <script>
+  /**
+   * System Topology View – read-only node → device → sender/receiver hierarchy,
+   * grouped by site/room. Use Registry & Patch for patch operations.
+   */
   let {
     registryNodes = [],
     registryDevices = [],
     registrySenders = [],
     registryReceivers = [],
-    selectedRegistryNodeId = "",
-    selectedRegistryDeviceId = "",
-    onSelectNode,
-    onSelectDevice,
-    isPatchTakeReady,
-    selectedPatchSender = null,
-    selectedPatchReceiver = null,
-    nmosIS05Base = "",
-    nmosTakeBusy = false,
-    onSelectPatchSender,
-    onSelectPatchReceiver,
-    onExecutePatchTake,
+    token = ""
   } = $props();
 
-  // Ensure arrays are never null (reactive)
-  let safeRegistryNodes = $derived(registryNodes || []);
-  let safeRegistryDevices = $derived(registryDevices || []);
-  let safeRegistrySenders = $derived(registrySenders || []);
-  let safeRegistryReceivers = $derived(registryReceivers || []);
+  let safeNodes = $derived(registryNodes || []);
+  let safeDevices = $derived(registryDevices || []);
+  let safeSenders = $derived(registrySenders || []);
+  let safeReceivers = $derived(registryReceivers || []);
+
+  let groupBy = $state("site"); // "site" | "room" | "none"
+
+  const groups = $derived.by(() => {
+    const list = safeNodes;
+    if (groupBy === "none") return [{ key: "", label: "All nodes", nodes: list }];
+    const map = new Map();
+    for (const n of list) {
+      const site = n.tags?.site?.[0] || "";
+      const room = n.tags?.room?.[0] || "";
+      const key = groupBy === "site" ? (site || "_ungrouped") : groupBy === "room" ? (room || "_ungrouped") : "";
+      const label = key === "_ungrouped" ? "Ungrouped" : key || "—";
+      if (!map.has(key)) map.set(key, { key, label, nodes: [] });
+      map.get(key).nodes.push(n);
+    }
+    return [...map.values()].sort((a, b) =>
+      a.label === "Ungrouped" ? 1 : b.label === "Ungrouped" ? -1 : a.label.localeCompare(b.label)
+    );
+  });
+
+  function devicesForNode(nodeId) {
+    return safeDevices.filter((d) => d.node_id === nodeId);
+  }
+
+  function sendersForDevice(deviceId) {
+    return safeSenders.filter((s) => s.device_id === deviceId);
+  }
+
+  function receiversForDevice(deviceId) {
+    return safeReceivers.filter((r) => r.device_id === deviceId);
+  }
+
+  function deviceTypeShort(type) {
+    if (!type) return "—";
+    return type.split(":").pop() || type;
+  }
 </script>
 
 <section class="mt-4 space-y-4">
   <header class="flex flex-wrap items-center justify-between gap-3">
     <div>
-      <h3 class="text-sm font-semibold text-slate-50">System Topology</h3>
+      <h3 class="text-sm font-semibold text-slate-50">System topology</h3>
       <p class="text-[11px] text-slate-400">
-        Visualize NMOS nodes, devices, senders and receivers in a router-friendly view.
+        Nodes, devices and endpoints by site/room. Read-only; use Registry & Patch to patch.
       </p>
     </div>
-    <div class="text-[11px] text-slate-400 space-y-0.5 text-right">
-      <p>
-        Registry: Nodes {safeRegistryNodes.length} · Devices {safeRegistryDevices.length}
-      </p>
-      <p>
-        Endpoints: Senders {safeRegistrySenders.length} · Receivers {safeRegistryReceivers.length}
-      </p>
+    <div class="flex items-center gap-2">
+      <label for="topology-group-by" class="text-[11px] text-slate-400">Group by</label>
+      <select
+        id="topology-group-by"
+        class="px-2 py-1 rounded-md bg-slate-900 border border-slate-700 text-[11px] text-slate-200"
+        bind:value={groupBy}
+      >
+        <option value="none">None</option>
+        <option value="site">Site</option>
+        <option value="room">Room</option>
+      </select>
     </div>
   </header>
 
-  {#if safeRegistryNodes.length === 0 && safeRegistrySenders.length === 0 && safeRegistryReceivers.length === 0}
-    <div class="rounded-xl border border-gray-800 bg-gray-900 p-8">
-      <div class="flex flex-col items-center justify-center text-center">
-        <svg class="w-16 h-16 text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-        </svg>
-        <h3 class="text-lg font-semibold text-gray-200 mb-2">Registry is empty</h3>
-        <p class="text-sm text-gray-400 max-w-md">
-          Run an NMOS discovery from the <span class="font-semibold text-gray-300">NMOS</span> tab to ingest nodes and endpoints into the internal registry.
-        </p>
-      </div>
+  {#if safeNodes.length === 0 && safeDevices.length === 0}
+    <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-8 text-center">
+      <p class="text-slate-400">Registry empty. Run discovery/sync from Registry & Patch or NMOS tab.</p>
     </div>
   {:else}
-    <div class="grid md:grid-cols-[2fr_3fr_2fr] gap-4 items-start">
-      <!-- Nodes & Devices column -->
-      <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
-        <div class="flex items-center justify-between mb-1">
-          <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Nodes</h4>
-          <span class="text-[11px] text-slate-400">{safeRegistryNodes.length} nodes</span>
-        </div>
-        <div class="space-y-1 max-h-40 overflow-auto pr-1">
-          {#each safeRegistryNodes as node}
-            <button
-              type="button"
-              class="w-full text-left px-3 py-1.5 rounded-lg border text-[11px] {selectedRegistryNodeId === node.id
-                ? 'border-svelte bg-slate-900 text-slate-50'
-                : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600'}"
-              on:click={() => onSelectNode?.(node.id)}
-            >
-              <span class="font-medium truncate">{node.label || node.id}</span>
-              <span class="block text-[10px] text-slate-400 truncate">{node.hostname}</span>
-            </button>
-          {/each}
-        </div>
-
-        <div class="mt-4 flex items-center justify-between mb-1">
-          <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Devices</h4>
-          <span class="text-[11px] text-slate-400">
-            {#if selectedRegistryNodeId}
-              {safeRegistryDevices.filter((d) => d.node_id === selectedRegistryNodeId).length} of {safeRegistryDevices.length}
-            {:else}
-              {safeRegistryDevices.length} devices
-            {/if}
-          </span>
-        </div>
-        <div class="space-y-1 max-h-48 overflow-auto pr-1">
-          {#each safeRegistryDevices.filter((d) => !selectedRegistryNodeId || d.node_id === selectedRegistryNodeId) as dev}
-            <button
-              type="button"
-              class="w-full text-left px-3 py-1.5 rounded-lg border text-[11px] {selectedRegistryDeviceId === dev.id
-                ? 'border-svelte bg-slate-900 text-slate-50'
-                : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600'}"
-              on:click={() => onSelectDevice?.(dev.id)}
-            >
-              <span class="font-medium truncate">{dev.label || dev.id}</span>
-              <span class="block text-[10px] text-slate-400 truncate">{dev.type}</span>
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Center "patch map" / senders -->
-      <div class="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-4">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Sources (Senders)</h4>
-            <p class="text-[11px] text-slate-400">
-              Choose a sender from the selected device to patch.
-            </p>
-          </div>
-          <div class="flex items-center gap-2 text-[11px] text-slate-400">
-            <span class="inline-flex h-2 w-2 rounded-full {isPatchTakeReady?.() ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
-            <span>{isPatchTakeReady?.() ? "Ready to patch" : "Select source & destination"}</span>
-          </div>
-        </div>
-
-        <div class="space-y-1 max-h-56 overflow-auto pr-1 text-[11px]">
-          {#if safeRegistrySenders.length === 0}
-            <p class="text-slate-500 italic">No senders in registry.</p>
-          {:else}
-            {#each safeRegistrySenders.filter((s) => !selectedRegistryDeviceId || s.device_id === selectedRegistryDeviceId) as s}
-              <button
-                type="button"
-                class="w-full text-left px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-svelte/70 hover:bg-slate-900 flex flex-col gap-0.5"
-                on:click={() => onSelectPatchSender?.(s)}
-              >
-                <span class="text-[13px] font-medium text-slate-50 truncate">{s.label}</span>
-                <span class="text-[11px] text-slate-400 truncate">{s.flow_id}</span>
-                <span class="text-[10px] text-slate-500 truncate uppercase">{s.transport}</span>
-              </button>
-            {/each}
+    <div class="space-y-6">
+      {#each groups as { key, label, nodes }}
+        <div class="rounded-xl border border-slate-800 bg-slate-950/50 overflow-hidden">
+          {#if groupBy !== "none"}
+            <div class="px-4 py-2 bg-slate-800/80 border-b border-slate-700">
+              <span class="text-xs font-semibold text-slate-300 uppercase tracking-wide">{label}</span>
+              <span class="ml-2 text-[11px] text-slate-500">{nodes.length} node(s)</span>
+            </div>
           {/if}
-        </div>
-
-        <div class="border-t border-slate-800 pt-3 text-[11px] text-slate-400 space-y-1">
-          <p class="font-semibold text-slate-200">Selected patch</p>
-          <p class="truncate">
-            Source:
-            {#if selectedPatchSender}
-              {selectedPatchSender.label}
-            {:else}
-              none
-            {/if}
-          </p>
-          <p class="truncate">
-            Destination:
-            {#if selectedPatchReceiver}
-              {selectedPatchReceiver.label}
-            {:else}
-              none
-            {/if}
-          </p>
-          <p class="truncate">IS-05 base: {nmosIS05Base || "not set"}</p>
-        </div>
-      </div>
-
-      <!-- Destinations column (receivers) -->
-      <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <h4 class="text-xs font-semibold text-slate-100 uppercase tracking-wide">Destinations (Receivers)</h4>
-            <p class="text-[11px] text-slate-400">Choose a receiver to patch to.</p>
-          </div>
-          <span class="text-[11px] text-slate-400">{safeRegistryReceivers.length} receivers</span>
-        </div>
-        <div class="space-y-1 max-h-72 overflow-auto pr-1 text-[11px]">
-          {#if safeRegistryReceivers.length === 0}
-            <p class="text-slate-500 italic">No receivers in registry.</p>
-          {:else}
-            {#each safeRegistryReceivers.filter((r) => !selectedRegistryDeviceId || r.device_id === selectedRegistryDeviceId) as r}
-              <button
-                type="button"
-                class="w-full text-left px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-svelte/70 hover:bg-slate-900 flex flex-col gap-0.5"
-                on:click={() => onSelectPatchReceiver?.(r)}
-              >
-                <span class="text-[13px] font-medium text-slate-50 truncate">{r.label}</span>
-                <span class="text-[11px] text-slate-400 truncate">{r.description}</span>
-                <span class="text-[10px] text-slate-500 truncate uppercase">{r.format} · {r.transport}</span>
-              </button>
+          <div class="p-4 flex flex-wrap gap-4">
+            {#each nodes as node}
+              {@const devs = devicesForNode(node.id)}
+              <div class="rounded-lg border border-slate-700 bg-slate-900/80 p-3 min-w-[200px] max-w-[280px]">
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <span class="text-sm font-medium text-slate-100 truncate" title={node.label || node.id}>
+                    {node.label || node.id}
+                  </span>
+                  <span class="text-[10px] text-slate-500 shrink-0">node</span>
+                </div>
+                {#if node.hostname}
+                  <p class="text-[10px] text-slate-500 truncate mb-2">{node.hostname}</p>
+                {/if}
+                <div class="space-y-2">
+                  {#each devs as dev}
+                    {@const numSenders = sendersForDevice(dev.id).length}
+                    {@const numReceivers = receiversForDevice(dev.id).length}
+                    <div class="rounded border border-slate-700/80 bg-slate-800/50 p-2">
+                      <div class="text-xs font-medium text-slate-200 truncate" title={dev.label || dev.id}>
+                        {dev.label || dev.id}
+                      </div>
+                      <div class="text-[10px] text-slate-500 mt-0.5">{deviceTypeShort(dev.type)}</div>
+                      <div class="flex gap-2 mt-1.5">
+                        <span class="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-200 text-[10px]">
+                          {numSenders} sender
+                        </span>
+                        <span class="px-1.5 py-0.5 rounded bg-violet-900/50 text-violet-200 text-[10px]">
+                          {numReceivers} receiver
+                        </span>
+                      </div>
+                    </div>
+                  {/each}
+                  {#if devs.length === 0}
+                    <p class="text-[11px] text-slate-500 italic">No devices</p>
+                  {/if}
+                </div>
+              </div>
             {/each}
-          {/if}
+          </div>
         </div>
+      {/each}
+    </div>
 
-        <div class="pt-2 flex justify-end">
-          <button
-            class="px-3 py-2 rounded-lg bg-svelte text-slate-950 text-xs font-semibold disabled:opacity-40"
-            disabled={!isPatchTakeReady?.()}
-            on:click={onExecutePatchTake}
-          >
-            {nmosTakeBusy ? "TAKING..." : "TAKE PATCH"}
-          </button>
-        </div>
-      </div>
+    <div class="rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
+      <span>Nodes: <strong class="text-slate-200">{safeNodes.length}</strong></span>
+      <span>Devices: <strong class="text-slate-200">{safeDevices.length}</strong></span>
+      <span>Senders: <strong class="text-slate-200">{safeSenders.length}</strong></span>
+      <span>Receivers: <strong class="text-slate-200">{safeReceivers.length}</strong></span>
     </div>
   {/if}
 </section>
-

@@ -12,6 +12,7 @@
     flowSortOrder = "desc",
     canEdit = false,
     isAdmin = false,
+    token = "",
     onApplyFlowSort,
     onPrevFlowPage,
     onNextFlowPage,
@@ -20,13 +21,21 @@
     onCreateFlow = null,
     onEditFlow = null,
     onUpdateFlow = null,
+    onPatchFlow = null,
     onCheckFlow = null,
     onFetchSDP = null,
     onSyncFromNMOS = null,
     onCheckIS05Receiver = null,
     newFlow = null,
     editingFlow = null,
+    autoOpenFlowName = null,
+    autoOpenModal = false,
   } = $props();
+
+  // flows parent'tan $state proxy olarak gelse bile her zaman diziye normalize et
+  // In Svelte 5, $state proxies are array-like (length, map, filter work)
+  // Use flows directly in $derived(); use || [] for null check
+  const safeFlows = $derived(flows || []);
 
   let showNewFlowModal = $state(false);
   let showDetailModal = $state(false);
@@ -60,6 +69,56 @@
   let is05CheckError = $state("");
   let is05CheckResult = $state(null);
 
+  // A.3: Registry flow (site/room/capability) for detail modal
+  let registryFlowsForDetail = $state([]);
+  $effect(() => {
+    if (!showDetailModal || !detailFlow?.nmos_flow_id || !token) {
+      registryFlowsForDetail = [];
+      return;
+    }
+    import("../lib/api.js").then(({ api }) => {
+      api("/nmos/registry/flows", { token }).then((data) => {
+        registryFlowsForDetail = Array.isArray(data) ? data : [];
+      }).catch(() => { registryFlowsForDetail = []; });
+    });
+  });
+
+  // D.1: Load all registry flows for site/room badges in list
+  let registryFlowsMap = $state(new Map());
+  $effect(() => {
+    if (!token || safeFlows.length === 0) return;
+    import("../lib/api.js").then(({ api }) => {
+      api("/nmos/registry/flows", { token }).then((data) => {
+        const map = new Map();
+        (Array.isArray(data) ? data : []).forEach((f) => {
+          if (f.id) map.set(f.id, f);
+        });
+        registryFlowsMap = map;
+      }).catch(() => {});
+    });
+  });
+
+  // B.4: SDN paths for flow detail (assign path to flow)
+  let sdnPathsList = $state([]);
+  let sdnPathSaving = $state(false);
+  $effect(() => {
+    if (!showDetailModal || !detailFlow || !token) {
+      sdnPathsList = [];
+      return;
+    }
+    import("../lib/api.js").then(({ api }) => {
+      api("/sdn/paths", { token }).then((data) => {
+        sdnPathsList = data?.paths ?? [];
+      }).catch(() => { sdnPathsList = []; });
+    });
+  });
+
+  const detailRegistryFlow = $derived(
+    detailFlow?.nmos_flow_id && registryFlowsForDetail.length
+      ? registryFlowsForDetail.find((f) => f.id === detailFlow.nmos_flow_id || f.id === detailFlow.nmos_flow_id?.toString?.())
+      : null
+  );
+
   $effect(() => {
     // Pre-fill from flow record when detail modal opens
     if (!detailFlow) return;
@@ -88,9 +147,14 @@
     showNewFlowModal = false;
   }
 
-  function handleCreateFlow() {
-    onCreateFlow?.();
+  function handleCreateFlow(form) {
+    onCreateFlow?.(form);
     handleCloseModal();
+  }
+
+  // Wrapper for EmptyState's onCreateFlow - opens modal instead of calling directly
+  function handleCreateFlowFromEmptyState() {
+    handleOpenModal();
   }
 
   function handleEditFlow(flow) {
@@ -122,6 +186,35 @@
     detailFlow = flow;
     showDetailModal = true;
   }
+
+  // Auto-open flow detail modal if autoOpenFlowName is set
+  let lastAutoOpenFlowName = $state(null);
+  $effect(() => {
+    if (autoOpenFlowName && autoOpenFlowName !== lastAutoOpenFlowName && safeFlows.length > 0) {
+      lastAutoOpenFlowName = autoOpenFlowName;
+      const flow = safeFlows.find(f => f.display_name === autoOpenFlowName);
+      if (flow) {
+        // Small delay to ensure view is rendered
+        setTimeout(() => {
+          openDetailModal(flow);
+        }, 100);
+      }
+    }
+  });
+
+  // Auto-open new flow modal if autoOpenModal is set
+  let lastAutoOpenModal = $state(false);
+  $effect(() => {
+    if (autoOpenModal && !lastAutoOpenModal && newFlow) {
+      lastAutoOpenModal = true;
+      // Small delay to ensure view is rendered
+      setTimeout(() => {
+        handleOpenModal();
+      }, 100);
+    } else if (!autoOpenModal) {
+      lastAutoOpenModal = false;
+    }
+  });
 
   function closeDetailModal() {
     detailFlow = null;
@@ -158,7 +251,7 @@
 
   // Filter flows
   let filteredFlows = $derived.by(() => {
-    let filtered = flows;
+    let filtered = safeFlows;
     if (statusFilter) {
       filtered = filtered.filter((f) => f.flow_status === statusFilter);
     }
@@ -296,14 +389,14 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-800">
-        {#if flows.length === 0}
+        {#if safeFlows.length === 0}
           <tr>
             <td colspan={canEdit ? 11 : 10} class="px-6 py-12">
               <EmptyState
                 title="No flows found"
                 message="Get started by creating your first flow or importing flows from a backup."
                 actionLabel={canEdit ? "Create Flow" : ""}
-                onAction={canEdit ? onCreateFlow : null}
+                onAction={canEdit ? handleCreateFlowFromEmptyState : null}
                 icon={IconPlus}
               />
             </td>
@@ -315,9 +408,26 @@
             </td>
           </tr>
         {:else}
-          {#each (statusFilter || availabilityFilter || dataSourceFilter ? filteredFlows : flows) as flow}
+          {#each (statusFilter || availabilityFilter || dataSourceFilter ? filteredFlows : safeFlows) as flow}
+            {@const regFlow = flow.nmos_flow_id ? registryFlowsMap.get(flow.nmos_flow_id) || registryFlowsMap.get(flow.nmos_flow_id?.toString?.()) : null}
             <tr class="hover:bg-gray-800/70 transition-colors cursor-pointer" onclick={() => openDetailModal(flow)}>
-              <td class="px-3 py-2 text-[13px] font-medium text-gray-100">{flow.display_name}</td>
+              <td class="px-3 py-2">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[13px] font-medium text-gray-100">{flow.display_name}</span>
+                  {#if regFlow}
+                    {#if regFlow.tags?.site?.[0]}
+                      <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-indigo-900/60 text-indigo-200 border border-indigo-700/50" title="Site: {regFlow.tags.site[0]}">
+                        {regFlow.tags.site[0]}
+                      </span>
+                    {/if}
+                    {#if regFlow.tags?.room?.[0]}
+                      <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-purple-900/60 text-purple-200 border border-purple-700/50" title="Room: {regFlow.tags.room[0]}">
+                        {regFlow.tags.room[0]}
+                      </span>
+                    {/if}
+                  {/if}
+                </div>
+              </td>
               <td class="px-3 py-2 text-gray-300">{flow.flow_id}</td>
               <td class="px-3 py-2 text-gray-300">{flow.multicast_ip}</td>
               <td class="px-3 py-2 text-gray-300">{flow.source_ip}</td>
@@ -412,9 +522,10 @@
 <!-- New Flow / Edit Flow Modal -->
 {#if newFlow}
   <NewFlowView
-    {newFlow}
+    bind:newFlow={newFlow}
     editingFlow={editingFlow}
     isOpen={showNewFlowModal}
+    {token}
     onCreateFlow={handleCreateFlow}
     onUpdateFlow={onUpdateFlow}
     onClose={handleCloseModal}
@@ -513,7 +624,7 @@
           </div>
         {/if}
 
-        {#if detailFlow.source_addr_a || detailFlow.multicast_addr_a || detailFlow.group_port_a || detailFlow.source_addr_b || detailFlow.multicast_addr_b || detailFlow.group_port_b || detailFlow.nmos_node_id || detailFlow.nmos_flow_id || detailFlow.nmos_sender_id || detailFlow.nmos_device_id || detailFlow.media_type || detailFlow.redundancy_group || detailFlow.data_source}
+        {#if detailFlow.source_addr_a || detailFlow.multicast_addr_a || detailFlow.group_port_a || detailFlow.source_addr_b || detailFlow.multicast_addr_b || detailFlow.group_port_b || detailFlow.nmos_node_id || detailFlow.nmos_flow_id || detailFlow.nmos_sender_id || detailFlow.nmos_device_id || detailFlow.media_type || detailFlow.format_summary || detailFlow.redundancy_group || detailFlow.data_source || detailFlow.sdn_path_id || onPatchFlow}
           <div class="border-t border-gray-800 pt-4 mt-4">
             <p class="text-xs text-gray-400 mb-2 font-medium">ST 2110 / ST 2022-7 / NMOS (Advanced)</p>
             <div class="grid grid-cols-2 gap-4">
@@ -558,6 +669,10 @@
                   {/if}
                 </p>
               </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1">Format (video/audio)</p>
+                <p class="text-sm text-gray-300 font-mono">{detailFlow.format_summary || "-"}</p>
+              </div>
 
               <div>
                 <p class="text-xs text-gray-500 mb-1">Audio Layout (IS-08 hook)</p>
@@ -596,8 +711,58 @@
                     {#if detailFlow.nmos_sender_id}<div>sender: {detailFlow.nmos_sender_id}</div>{/if}
                     {#if detailFlow.nmos_flow_id}<div>flow: {detailFlow.nmos_flow_id}</div>{/if}
                   </div>
+                  {#if detailRegistryFlow && (detailRegistryFlow.tags?.site?.[0] || detailRegistryFlow.tags?.room?.[0] || detailRegistryFlow.meta?.capabilities)}
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                      {#if detailRegistryFlow.tags?.site?.[0]}
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-indigo-900/60 text-indigo-200 border border-indigo-700/50">Site: {detailRegistryFlow.tags.site[0]}</span>
+                      {/if}
+                      {#if detailRegistryFlow.tags?.room?.[0]}
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-purple-900/60 text-purple-200 border border-purple-700/50">Room: {detailRegistryFlow.tags.room[0]}</span>
+                      {/if}
+                      {#if detailRegistryFlow.meta?.capabilities && typeof detailRegistryFlow.meta.capabilities === "object"}
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-700/60 text-slate-200 border border-slate-600/50" title={Object.entries(detailRegistryFlow.meta.capabilities).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")}>
+                          Capabilities
+                        </span>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               {/if}
+
+              <!-- B.4: SDN path (IS-06) -->
+              <div class="col-span-2">
+                <p class="text-xs text-gray-500 mb-1">SDN Path (IS-06)</p>
+                {#if canEdit && onPatchFlow}
+                  <div class="flex items-center gap-2">
+                    <select
+                      class="flex-1 min-w-0 px-3 py-2 bg-gray-950 border border-gray-700 rounded-md text-sm text-gray-200 focus:outline-none focus:border-orange-500"
+                      value={detailFlow.sdn_path_id || ""}
+                      onchange={async (e) => {
+                        const val = e.currentTarget.value;
+                        if (sdnPathSaving) return;
+                        sdnPathSaving = true;
+                        try {
+                          await onPatchFlow(detailFlow.id, { sdn_path_id: val || "" });
+                          detailFlow = { ...detailFlow, sdn_path_id: val || "" };
+                        } finally {
+                          sdnPathSaving = false;
+                        }
+                      }}
+                      disabled={sdnPathSaving}
+                    >
+                      <option value="">— None —</option>
+                      {#each sdnPathsList as p}
+                        <option value={p.id}>{p.name ?? p.id}</option>
+                      {/each}
+                    </select>
+                    {#if sdnPathSaving}
+                      <span class="text-xs text-gray-500">Saving...</span>
+                    {/if}
+                  </div>
+                {:else}
+                  <p class="text-sm text-gray-300">{detailFlow.sdn_path_id || "—"}</p>
+                {/if}
+              </div>
 
               {#if canEdit && onSyncFromNMOS}
                 <div class="col-span-2 border-t border-gray-800 pt-3">

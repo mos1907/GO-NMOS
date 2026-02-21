@@ -2,8 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { api, apiWithMeta } from "../lib/api.js";
   import { connectMQTT, disconnectMQTT } from "../lib/mqtt.js";
-  import NMOSView from "../components/NMOSView.svelte";
-  import NMOSPatchView from "../components/NMOSPatchView.svelte";
+  import RegistryPatchView from "../components/RegistryPatchView.svelte";
   import TopologyView from "../components/TopologyView.svelte";
   import DashboardHomeView from "../components/DashboardHomeView.svelte";
   import FlowsView from "../components/FlowsView.svelte";
@@ -14,11 +13,21 @@
   import AutomationJobsView from "../components/AutomationJobsView.svelte";
   import PlannerView from "../components/PlannerView.svelte";
   import MigrationChecklistView from "../components/MigrationChecklistView.svelte";
+  import AudioMappingView from "../components/AudioMappingView.svelte";
+  import AudioChainView from "../components/AudioChainView.svelte";
+  import EventsView from "../components/EventsView.svelte";
   import AddressMapView from "../components/AddressMapView.svelte";
   import LogsView from "../components/LogsView.svelte";
   import PortExplorerView from "../components/PortExplorerView.svelte";
+  import MultiSiteView from "../components/MultiSiteView.svelte";
+  import PlaybooksView from "../components/PlaybooksView.svelte";
+  import SchedulingView from "../components/SchedulingView.svelte";
+  import MetricsView from "../components/MetricsView.svelte";
+  import InteropView from "../components/InteropView.svelte";
+  //import PlaybooksView from "../components/PlaybooksView.svelte";
   import SkeletonLoader from "../components/SkeletonLoader.svelte";
   import EmptyState from "../components/EmptyState.svelte";
+  import { addNotification } from "../lib/notifications.js";
 
   let {
     token,
@@ -30,6 +39,7 @@
   let loading = $state(true);
   let error = $state("");
   let success = $state("");
+  let autoOpenFlowName = $state(null);
 
   let summary = $state({ total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 });
   let flows = $state([]);
@@ -53,12 +63,17 @@
   let selectedNMOSReceiver = $state(null);
   let nmosTakeBusy = $state(false);
   let checkerResult = $state(null);
+  let nmosCheckerResult = $state(null);
   let automationJobs = $state([]);
   let automationSummary = $state(null);
   let systemInfo = $state(null);
   let addressMap = $state(null);
   let logsKind = $state("api");
   let logsLines = $state([]);
+  let registryConfigs = $state([]);
+  let registryStats = $state([]);
+  let registryCompat = $state([]);
+  let sitesRoomsSummary = $state(null);
 
   // Diagnostics / Health panel state
   let healthDetail = $state(null);
@@ -85,27 +100,67 @@
   let registryDevices = $state([]);
   let registrySenders = $state([]);
   let registryReceivers = $state([]);
+  let registryFlows = $state([]);
   let registryHealth = $state(null);
   let selectedRegistryNodeId = $state("");
   let selectedRegistryDeviceId = $state("");
+  /** Increment after TAKE to refresh receiver active state (BCC-style). */
+  let refreshReceiverActiveTrigger = $state(0);
+
+  // Real-time: MQTT/WebSocket primary; polling fallback. Live control without page refresh.
+  // Patch state (IS-05): no backend event (read from external node), 2s polling
+  $effect(() => {
+    const view = currentView;
+    if (view !== "topology") return;
+    const tid = setInterval(() => refreshReceiverActiveTrigger++, 2000);
+    return () => clearInterval(tid);
+  });
+
+  // Registry: WebSocket /ws/registry sync event triggers loadNMOSRegistry() (live). Fallback: 30s polling
+  $effect(() => {
+    const view = currentView;
+    if (view !== "topology") return;
+    const tid = setInterval(() => loadNMOSRegistry(), 30000);
+    return () => clearInterval(tid);
+  });
+
+  // Flows/Dashboard: handleMQTTEvent already updates on MQTT flow events (live). Fallback: 30s silent refresh
+  $effect(() => {
+    const view = currentView;
+    if (view !== "dashboard" && view !== "flows") return;
+    const tid = setInterval(async () => {
+      try {
+        if (view === "flows") {
+          const data = await loadFlows();
+          if (Array.isArray(data)) flows = [...data];
+        } else {
+          const [sum, data, sys, sitesRooms] = await Promise.all([
+            api("/flows/summary", { token }),
+            loadFlows(),
+            api("/system", { token }).catch(() => systemInfo),
+            api("/nmos/registry/sites-summary", { token }).catch(() => null)
+          ]);
+          summary = sum;
+          flows = Array.isArray(data) ? [...data] : flows;
+          if (sys) systemInfo = sys;
+          if (sitesRooms != null) sitesRoomsSummary = sitesRooms;
+        }
+      } catch (_) {}
+    }, 30000);
+    return () => clearInterval(tid);
+  });
 
   // NMOS Patch-style view state (sender/receiver selection)
   let nmosNodes = $state([]);
-  let showAddNodeModal = $state(false);
-  let newNodeName = $state("");
-  let newNodeUrl = $state("");
   let selectedSenderNodeId = $state("");
   let selectedReceiverNodeId = $state("");
-  let senderNodeSenders = $state([]);
-  let receiverNodeReceivers = $state([]);
   let selectedPatchSender = $state(null);
   let selectedPatchReceiver = $state(null);
   let nmosPatchStatus = $state("");
   let nmosPatchError = $state("");
+  let nmosPatchWarning = $state("");
   let senderFilterText = $state("");
   let receiverFilterText = $state("");
-  let senderFormatFilter = $state("");
-  let receiverFormatFilter = $state("");
   // RDS (Registry) connect modal state
   let showConnectRDSModal = $state(false);
   let rdsQueryUrl = $state("");
@@ -113,6 +168,10 @@
   let rdsNodes = $state([]);
   let rdsSelectedIds = $state([]);
   let rdsError = $state("");
+  // Discover at URL → "Register?" confirm (Registry & Patch)
+  let discoverAtUrlResult = $state(null);
+  let pendingRegisterUrl = $state("");
+  let discoverAtUrlLoading = $state(false);
   let plannerRoots = $state([]);
   let plannerChildren = $state([]);
   let selectedPlannerRoot = $state(null);
@@ -128,6 +187,7 @@
     availability: "available",
     transport_protocol: "RTP/UDP",
     note: "",
+    bucket_id: null,
     alias_1: "",
     alias_2: "",
     alias_3: "",
@@ -149,7 +209,8 @@
   let editingFlow = $state(null);
 
   const isAdmin = user?.role === "admin";
-  const canEdit = user?.role === "admin" || user?.role === "editor";
+  // E.3: canEdit includes operator, engineer, admin (but not viewer or automation)
+  const canEdit = user?.role === "admin" || user?.role === "editor" || user?.role === "operator" || user?.role === "engineer";
 
   // Simple UI version label (frontend build version)
   const uiVersion = "go-NMOS UI v0.2.0 (router beta)";
@@ -159,37 +220,109 @@
     loading = true;
     error = "";
     try {
-      const [sum, data, sys] = await Promise.all([
+      const [sum, data, sys, sitesRooms] = await Promise.all([
         api("/flows/summary", { token }),
         loadFlows(),
-        api("/system", { token }).catch(() => systemInfo)
+        api("/system", { token }).catch(() => systemInfo),
+        api("/nmos/registry/sites-summary", { token }).catch(() => null)
       ]);
       summary = sum;
-      flows = data;
+      // Ensure flows is always an array - use spread to trigger reactivity
+      flows = Array.isArray(data) ? [...data] : [];
       systemInfo = sys || systemInfo;
+      sitesRoomsSummary = sitesRooms;
     } catch (e) {
-      error = e.message;
+      console.error("loadDashboard error:", e);
+      addNotification("error", e.message);
     } finally {
       loading = false;
     }
   }
 
   async function loadFlows() {
-    const { data, headers } = await apiWithMeta(
-      `/flows?limit=${flowLimit}&offset=${flowOffset}&sort_by=${encodeURIComponent(flowSortBy)}&sort_order=${encodeURIComponent(flowSortOrder)}`,
-      { token }
-    );
-    flowTotal = Number(headers.get("X-Total-Count") || 0);
-    return data;
+    try {
+      const { data, headers } = await apiWithMeta(
+        `/flows?limit=${flowLimit}&offset=${flowOffset}&sort_by=${encodeURIComponent(flowSortBy)}&sort_order=${encodeURIComponent(flowSortOrder)}`,
+        { token }
+      );
+      flowTotal = Number(headers.get("X-Total-Count") || 0);
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      console.error("loadFlows error:", e);
+      throw e;
+    }
   }
 
   async function loadUsers() {
-    if (!(user?.role === "admin" || user?.role === "editor")) return;
+    if (!canEdit) return;
     users = await api("/users", { token });
   }
 
   async function loadSettings() {
     settings = await api("/settings", { token });
+  }
+
+  async function loadRegistryConfig() {
+    try {
+      const data = await api("/registry/config", { token });
+      registryConfigs = Array.isArray(data) ? data : [];
+    } catch (e) {
+      console.warn("Failed to load registry config:", e.message);
+      registryConfigs = [];
+    }
+  }
+
+  async function loadRegistryStats() {
+    try {
+      const data = await api("/registry/config/stats", { token });
+      registryStats = Array.isArray(data) ? data : [];
+    } catch (e) {
+      registryStats = [];
+    }
+  }
+
+  async function loadRegistryCompat() {
+    try {
+      const data = await api("/registry/compat", { token });
+      registryCompat = Array.isArray(data) ? data : [];
+    } catch {
+      registryCompat = [];
+    }
+  }
+
+  async function saveRegistryConfigs(configs) {
+    error = "";
+    success = "";
+    try {
+      await api("/registry/config", {
+        method: "PUT",
+        token,
+        body: configs,
+      });
+      registryConfigs = configs;
+      addNotification("success", "Registry configuration saved.");
+    } catch (e) {
+      addNotification("error", e.message);
+    }
+  }
+
+  /** Remove one RDS from config and delete all nodes (and patch sources/destinations) from that registry. */
+  async function removeRegistry(queryUrl) {
+    try {
+      const res = await api("/registry/config/remove", {
+        method: "POST",
+        token,
+        body: { query_url: queryUrl },
+      });
+      await loadRegistryConfig();
+      await loadRegistryStats();
+      await loadNMOSRegistry();
+      const n = res.deleted_nodes ?? 0;
+      addNotification("success", res.message || `Registry removed. ${n} node(s) removed from Registry Patch.`);
+    } catch (e) {
+      addNotification("error", e.message || "Failed to remove registry");
+      throw e;
+    }
   }
 
   async function loadHealthDetail() {
@@ -252,12 +385,31 @@
     }
   }
 
+  async function fetchSDNTopology() {
+    return api("/sdn/topology", { token });
+  }
+
+  async function fetchSDNPaths(from, to) {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    return api(`/sdn/paths?${q.toString()}`, { token });
+  }
+
+  async function patchFlow(flowId, updates) {
+    await api(`/flows/${flowId}`, { method: "PATCH", token, body: updates });
+    await refreshAll();
+  }
+
   async function refreshAll() {
     success = "";
     await loadDashboard();
     await loadHealthDetail().catch(() => {});
     await loadUsers().catch(() => {});
     await loadSettings().catch(() => {});
+    await loadRegistryConfig().catch(() => {});
+    await loadRegistryStats().catch(() => {});
+    await loadRegistryCompat().catch(() => {});
     await loadCheckerLatest().catch(() => {});
     await loadAutomationJobs().catch(() => {});
     await loadAddressMap().catch(() => {});
@@ -276,42 +428,122 @@
         `/flows/search?q=${encodeURIComponent(searchTerm)}&limit=${searchLimit}&offset=${searchOffset}&sort_by=${encodeURIComponent(flowSortBy)}&sort_order=${encodeURIComponent(flowSortOrder)}`,
         { token }
       );
-      searchResults = data;
+      searchResults = Array.isArray(data) ? data : [];
       searchTotal = Number(headers.get("X-Total-Count") || 0);
     } catch (e) {
-      error = e.message;
+      searchResults = [];
+      searchTotal = 0;
+      addNotification("error", e.message);
     }
   }
 
-  async function createFlow() {
+  function normalizeNewFlowPayload(form = newFlow) {
+    const toInt = (v) => {
+      const n = typeof v === "string" ? parseInt(v, 10) : v;
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // Debug: log the form object to see what we're receiving
+    console.debug("normalizeNewFlowPayload - form.display_name:", form?.display_name);
+
+    const payload = {
+      display_name: (form?.display_name || "").trim(),
+      multicast_ip: (form?.multicast_ip || "").trim(),
+      source_ip: (form?.source_ip || "").trim(),
+      port: toInt(form?.port),
+      flow_status: form?.flow_status || "active",
+      availability: form?.availability || "available",
+      transport_protocol: form?.transport_protocol || "RTP/UDP",
+      note: form?.note || "",
+      // optional bucket_id
+      bucket_id: form?.bucket_id || null,
+      // optional aliases
+      alias_1: form?.alias_1 || "",
+      alias_2: form?.alias_2 || "",
+      alias_3: form?.alias_3 || "",
+      alias_4: form?.alias_4 || "",
+      alias_5: form?.alias_5 || "",
+      alias_6: form?.alias_6 || "",
+      alias_7: form?.alias_7 || "",
+      alias_8: form?.alias_8 || "",
+      // optional user fields
+      user_field_1: form?.user_field_1 || "",
+      user_field_2: form?.user_field_2 || "",
+      user_field_3: form?.user_field_3 || "",
+      user_field_4: form?.user_field_4 || "",
+      user_field_5: form?.user_field_5 || "",
+      user_field_6: form?.user_field_6 || "",
+      user_field_7: form?.user_field_7 || "",
+      user_field_8: form?.user_field_8 || "",
+    };
+
+    return payload;
+  }
+
+  // Flag to auto-open modal when switching to flows view
+  let shouldAutoOpenFlowModal = $state(false);
+
+  // Wrapper function to open modal when Create Flow is called from EmptyState in DashboardHomeView
+  function handleCreateFlowFromDashboard() {
+    // Reset form and switch to flows view (modal will be opened by FlowsView)
+    resetNewFlowForm();
+    editingFlow = null;
+    shouldAutoOpenFlowModal = true;
+    currentView = "flows";
+    // Reset flag after a short delay
+    setTimeout(() => {
+      shouldAutoOpenFlowModal = false;
+    }, 500);
+  }
+
+  async function createFlow(form) {
     error = "";
     success = "";
     try {
-      await api("/flows", { method: "POST", token, body: newFlow });
-      success = "Flow created successfully.";
+      // Use the form parameter if provided, otherwise fall back to newFlow state
+      // If form is provided, use it; otherwise use current newFlow state
+      const formData = form ? { ...form } : { ...newFlow };
+
+      // Normalize payload first
+      const payload = normalizeNewFlowPayload(formData);
+
+      // Validate after normalization
+      if (!payload.display_name || !payload.display_name.trim()) {
+        error = "Display name is required.";
+        return;
+      }
+      
+      const result = await api("/flows", { method: "POST", token, body: payload });
+      if (result?.already_exists) addNotification("warning", result?.message || "A flow with this name already exists. No duplicate created.");
+      else addNotification("success", "Flow created successfully.");
       resetNewFlowForm();
-      await refreshAll();
+      // Force reload flows list
+      const reloadedFlows = await loadFlows();
+      flows = Array.isArray(reloadedFlows) ? [...reloadedFlows] : [];
+      summary = await api("/flows/summary", { token });
     } catch (e) {
-      error = e.message;
+      console.error("Error creating flow:", e);
+      addNotification("error", e.message);
     }
   }
 
-  async function updateFlow() {
+  async function updateFlow(form) {
     if (!editingFlow) return;
     error = "";
     success = "";
     try {
+      const payload = normalizeNewFlowPayload(form ?? newFlow);
       await api(`/flows/${editingFlow.id}`, {
         method: "PATCH",
         token,
-        body: newFlow,
+        body: payload,
       });
-      success = "Flow updated successfully.";
+      addNotification("success", "Flow updated successfully.");
       editingFlow = null;
       resetNewFlowForm();
       await refreshAll();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -325,6 +557,7 @@
       availability: "available",
       transport_protocol: "RTP/UDP",
       note: "",
+      bucket_id: null,
       sdp_url: "",
       sdp_cache: "",
       alias_1: "",
@@ -359,6 +592,7 @@
       availability: flow.availability || "available",
       transport_protocol: flow.transport_protocol || "",
       note: flow.note || "",
+      bucket_id: flow.bucket_id || null,
       sdp_url: flow.sdp_url || "",
       sdp_cache: flow.sdp_cache || "",
       alias_1: flow.alias_1 || "",
@@ -409,32 +643,8 @@
         is04_base_url: is04BaseUrl || "",
         is05_base_url: is05BaseUrl || "",
         timeout: 6,
-        fields: [
-          "data_source",
-          "nmos_node_id",
-          "nmos_flow_id",
-          "nmos_sender_id",
-          "nmos_device_id",
-          "nmos_node_label",
-          "nmos_node_description",
-          "nmos_is04_base_url",
-          "nmos_is05_base_url",
-          "nmos_is04_version",
-          "sdp_url",
-          "sdp_cache",
-          "media_type",
-          "redundancy_group",
-          "transport_protocol",
-          "st2110_format",
-          "source_addr_a",
-          "source_port_a",
-          "multicast_addr_a",
-          "group_port_a",
-          "source_addr_b",
-          "source_port_b",
-          "multicast_addr_b",
-          "group_port_b"
-        ],
+        // Empty fields = backend fills all (multicast_ip, source_ip, port, SDP, NMOS, format_summary)
+        fields: [],
       },
     });
     await refreshAll();
@@ -467,7 +677,7 @@
       const updatedFlow = { ...flow, locked: result.locked };
       // Don't set success message - popup will show instead
       await loadFlows().then((data) => {
-        flows = data;
+        flows = Array.isArray(data) ? [...data] : [];
       });
       await api("/flows/summary", { token }).then((s) => {
         summary = s;
@@ -475,7 +685,7 @@
       // Return result for popup display
       return { locked: result.locked, flow: updatedFlow };
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
       return null;
     }
   }
@@ -486,27 +696,30 @@
     success = "";
     try {
       await api(`/flows/${flow.id}`, { method: "DELETE", token });
-      success = "Flow deleted.";
+      addNotification("success", "Flow deleted.");
       await refreshAll();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
   async function nextFlowPage() {
     if (flowOffset + flowLimit >= flowTotal) return;
     flowOffset += flowLimit;
-    flows = await loadFlows();
+    const data = await loadFlows();
+    flows = Array.isArray(data) ? [...data] : [];
   }
 
   async function prevFlowPage() {
     flowOffset = Math.max(0, flowOffset - flowLimit);
-    flows = await loadFlows();
+    const data = await loadFlows();
+    flows = Array.isArray(data) ? [...data] : [];
   }
 
   async function applyFlowSort() {
     flowOffset = 0;
-    flows = await loadFlows();
+    const data = await loadFlows();
+    flows = Array.isArray(data) ? [...data] : [];
   }
 
   async function nextSearchPage() {
@@ -529,9 +742,9 @@
         token,
         body: { value: settings[key] ?? "" }
       });
-      success = `Setting '${key}' updated.`;
+      addNotification("success", `Setting '${key}' updated.`);
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -551,10 +764,10 @@
         token,
         body,
       });
-      success = `User '${username}' updated successfully.`;
+      addNotification("success", `User '${username}' updated successfully.`);
       await loadUsers();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -566,10 +779,10 @@
         method: "DELETE",
         token,
       });
-      success = `User '${username}' deleted successfully.`;
+      addNotification("success", `User '${username}' deleted successfully.`);
       await loadUsers();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -585,7 +798,7 @@
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -599,10 +812,10 @@
       const text = await file.text();
       const payload = JSON.parse(text);
       const result = await api("/flows/import", { method: "POST", token, body: payload });
-      success = `Import complete. ${result.imported ?? 0} flow processed.`;
+      addNotification("success", `Import complete. ${result.imported ?? 0} flow(s) processed.`);
       await refreshAll();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     } finally {
       importing = false;
       event.target.value = "";
@@ -619,18 +832,20 @@
         body: { base_url: nmosBaseUrl }
       });
 
-      // IS-05 base URL varsayılanı: <base>/x-nmos/connection/<version>
+      // IS-05 base URL default: <base>/x-nmos/connection/<is05_version>
       const base = nmosResult.base_url?.replace(/\/$/, "") || nmosBaseUrl.replace(/\/$/, "");
-      const ver = (nmosResult.is04_version || "").replace(/^\//, "");
-      nmosIS05Base = `${base}/x-nmos/connection/${ver}`;
+      // Use IS-05 version if available, otherwise fallback to IS-04 version
+      const is05Ver = (nmosResult.is05_version || nmosResult.is04_version || "v1.0").replace(/^\//, "");
+      nmosIS05Base = `${base}/x-nmos/connection/${is05Ver}`;
+      console.log("[NMOS Discovery] IS-05 version:", nmosResult.is05_version, "Using:", is05Ver, "Base URL:", nmosIS05Base);
 
-      // Varsayılan seçimler: ilk flow ve ilk receiver
+      // Default selection: first flow and first receiver
       selectedNMOSFlow = flows[0] || null;
       selectedNMOSReceiver = (nmosResult.receivers || [])[0] || null;
 
-      success = "NMOS discovery completed.";
+      addNotification("success", "NMOS discovery completed.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -648,7 +863,7 @@
       const receiverId = selectedNMOSReceiver.id;
       const connectionUrl = `${base}/single/receivers/${receiverId}/staged`;
 
-      // Uygun NMOS sender varsa flow_id'ye göre eşle
+      // Match NMOS sender by flow_id if available
       let senderId = "";
       if (nmosResult?.senders && selectedNMOSFlow?.flow_id) {
         const match = nmosResult.senders.find((s) => s.flow_id === selectedNMOSFlow.flow_id);
@@ -664,9 +879,9 @@
         }
       });
 
-      success = `TAKE OK: ${selectedNMOSFlow.display_name} → ${selectedNMOSReceiver.label}`;
+      addNotification("success", `TAKE OK: ${selectedNMOSFlow.display_name} → ${selectedNMOSReceiver.label}`);
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     } finally {
       nmosTakeBusy = false;
     }
@@ -700,12 +915,6 @@
     }
   }
 
-  function openAddNodeModal() {
-    newNodeName = "";
-    newNodeUrl = "";
-    showAddNodeModal = true;
-  }
-
   function openRDSModal() {
     try {
       rdsQueryUrl = localStorage.getItem(RDS_QUERY_KEY) || rdsQueryUrl;
@@ -721,6 +930,31 @@
   function closeRDSModal() {
     showConnectRDSModal = false;
     rdsDiscovering = false;
+  }
+
+  /** Normalize URL for comparison (trim, trailing slash). */
+  function normalizeRegistryUrl(u) {
+    if (!u || typeof u !== "string") return "";
+    return u.trim().replace(/\/+$/, "");
+  }
+
+  /** Ensure this query URL is in the system registry config so Reload registry and RDS list work. */
+  async function ensureRegistryInConfig(queryUrl) {
+    const q = normalizeRegistryUrl(queryUrl);
+    if (!q) return;
+    try {
+      let configs = await api("/registry/config", { token });
+      if (!Array.isArray(configs)) configs = [];
+      const has = configs.some((r) => normalizeRegistryUrl(r.query_url) === q);
+      if (!has) {
+        const label = q.replace(/^https?:\/\//, "").replace(/\/x-nmos\/query.*/i, "") || "RDS";
+        configs = [...configs, { name: label, query_url: q, role: "prod", enabled: true }];
+        await api("/registry/config", { method: "PUT", token, body: configs });
+        registryConfigs = configs;
+      }
+    } catch (e) {
+      console.warn("Could not add RDS to config:", e.message);
+    }
   }
 
   async function discoverRegistryNodes() {
@@ -742,6 +976,9 @@
       });
       rdsNodes = res.nodes || [];
       rdsSelectedIds = (rdsNodes || []).map((n) => n.id).filter(Boolean);
+      await ensureRegistryInConfig(q);
+      await loadRegistryConfig();
+      await loadRegistryStats();
     } catch (e) {
       rdsError = e.message;
     } finally {
@@ -761,90 +998,243 @@
     rdsSelectedIds = (rdsNodes || []).map((n) => n.id).filter(Boolean);
   }
 
-  function addSelectedRegistryNodes() {
+  let reloadRegistrySyncing = $state(false);
+
+  /** Re-fetch all nodes from system-configured registries (Settings) and sync resources; then refresh list. Same result from any client. */
+  async function reloadRegistry() {
+    reloadRegistrySyncing = true;
+    try {
+      const res = await api("/nmos/registry/sync", {
+        method: "POST",
+        token,
+        body: {}
+      });
+      await loadNMOSRegistry();
+      const failed = res.failed || [];
+      if (res.synced != null && res.synced > 0) {
+        addNotification("success", res.message || `Synced ${res.synced} node(s).`);
+      } else if (res.synced === 0) {
+        addNotification("info", res.message || "Configure registries in Settings to sync, or use Connect RDS to add nodes once.");
+      }
+      if (failed.length > 0) {
+        addNotification("warning", `${failed.length} node(s) failed to sync: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? "…" : ""}`);
+      }
+    } catch (e) {
+      addNotification("error", e.message || "Reload registry failed");
+    } finally {
+      reloadRegistrySyncing = false;
+    }
+  }
+
+  /** Reload a single RDS by query_url; then refresh registry list and stats. */
+  async function reloadRegistryByUrl(queryUrl) {
+    try {
+      const res = await api("/nmos/registry/sync", {
+        method: "POST",
+        token,
+        body: { query_url: (queryUrl || "").trim() },
+      });
+      await loadNMOSRegistry();
+      await loadRegistryStats();
+      if (res.synced != null && res.synced > 0) {
+        addNotification("success", res.message || `Synced ${res.synced} node(s).`);
+      }
+      if ((res.failed || []).length > 0) {
+        addNotification("warning", `${res.failed.length} node(s) failed to sync.`);
+      }
+    } catch (e) {
+      addNotification("error", e.message || "Reload failed");
+      throw e;
+    }
+  }
+
+  /** Update one RDS in config (name, query_url, role, enabled); then refresh config list. */
+  async function updateRegistry(oldQueryUrl, updated) {
+    const norm = (u) => (u || "").trim().replace(/\/+$/, "");
+    const key = norm(oldQueryUrl);
+    const configs = (registryConfigs || []).map((r) =>
+      norm(r.query_url) === key ? { ...r, ...updated } : r
+    );
+    await saveRegistryConfigs(configs);
+    await loadRegistryConfig();
+    await loadRegistryStats();
+  }
+
+  /** Registry & Patch: bulk-register selected nodes from RDS into internal registry (sync). */
+  async function registerSelectedNodesToRegistry() {
     const selected = new Set(rdsSelectedIds || []);
     const candidates = (rdsNodes || []).filter((n) => selected.has(n.id));
     if (candidates.length === 0) return;
-
-    const norm = (s) => (s || "").trim().replace(/\/$/, "");
-    const existing = new Set((nmosNodes || []).map((n) => norm(n.base_url)));
-
-    const toAdd = [];
-    for (const n of candidates) {
-      const base = norm(n.base_url || "");
-      if (!base) continue;
-      if (existing.has(base)) continue;
-      existing.add(base);
-      toAdd.push({
-        id: `rds-${n.id || Date.now()}-${Math.random().toString(16).slice(2)}`,
-        name: (n.label || n.id || base).trim(),
-        base_url: base
-      });
+    let items = candidates
+      .map((n) => {
+        const base_url = (n.base_url || n.baseURL || n.BaseURL || n.href || n.Href || "").trim().replace(/\/$/, "");
+        const label = (n.label || n.id || base_url || "").trim();
+        return { base_url, label };
+      })
+      .filter((x) => x.base_url);
+    const beforeDedupe = items.length;
+    const seenUrl = new Set();
+    items = items.filter((x) => {
+      if (seenUrl.has(x.base_url)) return false;
+      seenUrl.add(x.base_url);
+      return true;
+    });
+    if (beforeDedupe > items.length) {
+      addNotification("info", "Duplicate source (same URL) removed: " + (beforeDedupe - items.length) + " entries.");
     }
-
-    if (toAdd.length === 0) {
-      rdsError = "No new nodes to add (duplicates or missing base_url).";
+    if (items.length === 0) {
+      rdsError = "Selected nodes have no base_url.";
       return;
     }
-
-    nmosNodes = [...nmosNodes, ...toAdd];
-    saveNodes();
-    showConnectRDSModal = false;
+    rdsDiscovering = true;
+    rdsError = "";
+    try {
+      let newCount = 0;
+      let alreadyCount = 0;
+      for (const item of items) {
+        try {
+          const res = await api("/nmos/register-node", { method: "POST", token, body: { base_url: item.base_url, label: item.label } });
+          if (res && res.already_registered) {
+            alreadyCount++;
+            addNotification("info", (res.previous_label || res.node_id || "") + " was already registered; label updated to: " + item.label);
+          } else {
+            newCount++;
+          }
+        } catch (e) {
+          console.warn("Register node failed:", item.base_url, e);
+        }
+      }
+      await loadNMOSRegistry();
+      if (alreadyCount > 0 && newCount > 0) {
+        addNotification("success", newCount + " new node(s) added, " + alreadyCount + " already registered (label updated).");
+      } else if (alreadyCount > 0) {
+        addNotification("success", "All were already registered (" + alreadyCount + " node label(s) updated).");
+      } else {
+        addNotification("success", newCount + " node(s) registered. They will appear in Sender/Receiver Nodes.");
+      }
+      showConnectRDSModal = false;
+    } catch (e) {
+      rdsError = e.message || "Registration failed";
+    } finally {
+      rdsDiscovering = false;
+    }
   }
 
-  function cancelAddNode() {
-    showAddNodeModal = false;
-  }
-
-  function addNode() {
-    const name = newNodeName.trim();
-    const url = newNodeUrl.trim();
-    if (!name || !url) return;
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    nmosNodes = [...nmosNodes, { id, name, base_url: url }];
-    saveNodes();
-    showAddNodeModal = false;
-  }
-
-  async function loadSenderNode(nodeId) {
-    const node = nmosNodes.find((n) => n.id === nodeId);
-    if (!node) return;
-    nmosPatchError = "";
-    nmosPatchStatus = "";
+  async function discoverAtUrl(url) {
+    if (!url?.trim()) return;
+    discoverAtUrlLoading = true;
+    discoverAtUrlResult = null;
+    pendingRegisterUrl = "";
     try {
       const res = await api("/nmos/discover", {
         method: "POST",
         token,
-        body: { base_url: node.base_url }
+        body: { base_url: url.trim() }
       });
-      senderNodeSenders = res.senders || [];
-      selectedPatchSender = senderNodeSenders[0] || null;
-      nmosPatchStatus = `Loaded ${senderNodeSenders.length} senders from ${node.name}`;
+      discoverAtUrlResult = res;
+      pendingRegisterUrl = url.trim();
     } catch (e) {
-      nmosPatchError = e.message;
+      addNotification("error", e.message || "Discover failed");
+    } finally {
+      discoverAtUrlLoading = false;
     }
   }
 
-  async function loadReceiverNode(nodeId) {
-    const node = nmosNodes.find((n) => n.id === nodeId);
-    if (!node) return;
-    nmosPatchError = "";
-    nmosPatchStatus = "";
+  async function registerDiscoveredNode(url) {
+    if (!url?.trim()) return;
     try {
-      const res = await api("/nmos/discover", {
+      await api("/nmos/register-node", {
         method: "POST",
         token,
-        body: { base_url: node.base_url }
+        body: { base_url: url.trim() }
       });
-      receiverNodeReceivers = res.receivers || [];
-      selectedPatchReceiver = receiverNodeReceivers[0] || null;
-      const base = res.base_url?.replace(/\/$/, "") || node.base_url.replace(/\/$/, "");
-      const ver = (res.is04_version || "").replace(/^\//, "");
-      nmosIS05Base = `${base}/x-nmos/connection/${ver}`;
-      nmosPatchStatus = `Loaded ${receiverNodeReceivers.length} receivers from ${node.name}`;
+      discoverAtUrlResult = null;
+      pendingRegisterUrl = "";
+      await loadNMOSRegistry();
+      addNotification("success", "Node registered to registry.");
     } catch (e) {
-      nmosPatchError = e.message;
+      addNotification("error", e.message || "Register failed");
     }
+  }
+
+  function closeRegisterConfirm() {
+    discoverAtUrlResult = null;
+    pendingRegisterUrl = "";
+  }
+
+  async function deleteRegistryNode(nodeId) {
+    if (!nodeId || !canEdit) return;
+    try {
+      await api(`/nmos/registry/nodes/${encodeURIComponent(nodeId)}`, { method: "DELETE", token });
+      addNotification("success", "Node removed from registry.");
+      await loadNMOSRegistry();
+      if (selectedRegistryNodeId === nodeId) {
+        selectedRegistryNodeId = "";
+        selectedRegistryDeviceId = "";
+      }
+      if (selectedReceiverNodeId === nodeId) selectedReceiverNodeId = "";
+    } catch (e) {
+      addNotification("error", e.message || "Remove failed");
+    }
+  }
+
+  /** Discover IS-05 base for a node (by id). Used when user selects a node so we can show BCC/external connection status. */
+  async function discoverIS05BaseForNode(nodeId) {
+    if (!nodeId || !registryNodes?.length) return;
+    const node = registryNodes.find((n) => n.id === nodeId);
+    if (!node || !node.hostname) return;
+    await discoverIS05BaseFromNodeHostname(node.hostname);
+  }
+
+  function discoverIS05BaseFromNodeHostname(hostname) {
+    return (async () => {
+      let baseURL = hostname;
+      if (!baseURL.startsWith("http://") && !baseURL.startsWith("https://")) {
+        const ports = [8080, 8081, 8082, 80, 443];
+        for (const port of ports) {
+          try {
+            const testURL = `http://${hostname}:${port}`;
+            const result = await api("/nmos/detect-is05", {
+              method: "POST",
+              token,
+              body: { base_url: testURL }
+            });
+            if (result.detected && result.is05_base_url) {
+              nmosIS05Base = result.is05_base_url;
+              console.log("[Registry Patch] Discovered IS-05 base URL:", nmosIS05Base);
+              return;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+        baseURL = `http://${hostname}:8080`;
+      } else {
+        baseURL = baseURL.replace(/\/$/, "");
+      }
+      try {
+        const result = await api("/nmos/detect-is05", {
+          method: "POST",
+          token,
+          body: { base_url: baseURL }
+        });
+        if (result.detected && result.is05_base_url) {
+          nmosIS05Base = result.is05_base_url;
+          console.log("[Registry Patch] Discovered IS-05 base URL:", nmosIS05Base);
+        }
+      } catch (e) {
+        console.warn("[Registry Patch] Error discovering IS-05 base URL:", e);
+      }
+    })();
+  }
+
+  async function discoverIS05BaseForReceiver(receiver) {
+    if (!receiver || !receiver.device_id) return;
+    const device = registryDevices.find((d) => d.id === receiver.device_id);
+    if (!device || !device.node_id) return;
+    const node = registryNodes.find((n) => n.id === device.node_id);
+    if (!node || !node.hostname) return;
+    await discoverIS05BaseFromNodeHostname(node.hostname);
   }
 
   function isPatchTakeReady() {
@@ -855,23 +1245,65 @@
     if (!isPatchTakeReady()) return;
     nmosPatchError = "";
     nmosPatchStatus = "";
+    nmosPatchWarning = "";
     nmosTakeBusy = true;
     try {
       const base = nmosIS05Base.replace(/\/$/, "");
       const receiverId = selectedPatchReceiver.id;
       const connectionUrl = `${base}/single/receivers/${receiverId}/staged`;
 
-      const internalFlow =
+      let internalFlow =
         flows.find((f) => f.flow_id && f.flow_id === selectedPatchSender?.flow_id) ||
-        flows.find((f) => f.flow_id && f.flow_id === selectedPatchSender?.flow_id?.toString?.());
-      if (!internalFlow) {
+        flows.find((f) => f.flow_id && f.flow_id === selectedPatchSender?.flow_id?.toString?.()) ||
+        flows.find((f) => f.nmos_flow_id && (f.nmos_flow_id === selectedPatchSender?.flow_id || f.nmos_flow_id === selectedPatchSender?.flow_id?.toString?.()));
+
+      // If flow not found in internal flows, try to create it from registry flow (backend returns existing if flow_id already exists)
+      if (!internalFlow && selectedPatchSender?.flow_id) {
+        const registryFlow = registryFlows.find((f) => f.id === selectedPatchSender.flow_id);
+        if (registryFlow) {
+          // Create a flow from registry flow data
+          try {
+            const newFlow = await api("/flows", {
+              method: "POST",
+              token,
+              body: {
+                flow_id: registryFlow.id,
+                display_name: registryFlow.label || `Flow ${registryFlow.id.substring(0, 8)}`,
+                data_source: "nmos",
+                nmos_flow_id: registryFlow.id,
+                nmos_label: registryFlow.label,
+                nmos_description: registryFlow.description,
+                // Try to fetch SDP if manifest_href is available
+                sdp_url: selectedPatchSender.manifest_href || ""
+              }
+            });
+            internalFlow = newFlow?.flow ?? newFlow;
+            if (newFlow?.already_exists) {
+              nmosPatchWarning = newFlow.message || "A flow with this name already exists. Using existing flow.";
+            }
+            // Reload flows to include the new one (or existing)
+            const flowsData = await api("/flows?limit=1000", { token });
+            flows = Array.isArray(flowsData) ? flowsData : [];
+            console.log("[Registry Patch] Created flow from registry:", newFlow);
+          } catch (createError) {
+            console.error("[Registry Patch] Failed to create flow from registry:", createError);
+            throw new Error(
+              `No internal flow found for sender flow_id=${selectedPatchSender.flow_id}. Failed to create flow: ${createError.message}`
+            );
+          }
+        } else {
+          throw new Error(
+            `No internal flow found for selected sender flow_id=${selectedPatchSender?.flow_id || "?"}. Flow not found in registry either.`
+          );
+        }
+      } else if (!internalFlow) {
         throw new Error(
-          `No internal flow found for selected sender flow_id=${selectedPatchSender?.flow_id || "?"}. Import/sync flows first (or select a sender that matches an existing flow).`
+          `No internal flow found for selected sender. Sender has no flow_id.`
         );
       }
 
-      // sender_id + transport_params (from internal flow) ile backend'e delege et
-      await api(`/flows/${internalFlow.id}/nmos/apply`, {
+      // sender_id + transport_params (from internal flow) ile backend'e delege et; response includes flow info
+      const applyRes = await api(`/flows/${internalFlow.id}/nmos/apply`, {
         method: "POST",
         token,
         body: {
@@ -880,7 +1312,12 @@
         }
       });
 
-      nmosPatchStatus = `TAKE OK: ${selectedPatchSender.label} → ${selectedPatchReceiver.label} (flow: ${internalFlow.display_name})`;
+      const flowLabel = applyRes?.flow?.display_name || internalFlow.display_name;
+      const flowAddr = applyRes?.flow?.multicast_ip && applyRes?.flow?.port != null
+        ? ` ${applyRes.flow.multicast_ip}:${applyRes.flow.port}`
+        : "";
+      nmosPatchStatus = `TAKE OK: ${selectedPatchSender.label} → ${selectedPatchReceiver.label} · Flow: ${flowLabel}${flowAddr}`;
+      refreshReceiverActiveTrigger++;
     } catch (e) {
       nmosPatchError = e.message;
     } finally {
@@ -888,51 +1325,50 @@
     }
   }
 
-  function filterSenders(list) {
-    return (list || []).filter((s) => {
-      const txt = senderFilterText.trim().toLowerCase();
-      const fmt = senderFormatFilter.trim();
-      const okText =
-        !txt ||
-        s.label?.toLowerCase().includes(txt) ||
-        s.flow_id?.toLowerCase().includes(txt) ||
-        s.description?.toLowerCase().includes(txt);
-      const okFmt = !fmt || (s.format || "").toLowerCase().includes(fmt);
-      return okText && okFmt;
-    });
-  }
-
-  function filterReceivers(list) {
-    return (list || []).filter((r) => {
-      const txt = receiverFilterText.trim().toLowerCase();
-      const fmt = receiverFormatFilter.trim();
-      const okText =
-        !txt ||
-        r.label?.toLowerCase().includes(txt) ||
-        r.description?.toLowerCase().includes(txt) ||
-        r.id?.toLowerCase().includes(txt);
-      const okFmt = !fmt || (r.format || "").toLowerCase().includes(fmt);
-      return okText && okFmt;
-    });
-  }
-
   async function runCollisionCheck() {
     error = "";
     try {
       checkerResult = await api("/checker/collisions", { token });
-      success = "Collision check completed.";
+      addNotification("success", "Collision check completed.");
       await loadDashboard();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
+  function handleCheckerFlowClick(flowName) {
+    // Switch to flows view and auto-open flow detail modal
+    currentView = "flows";
+    autoOpenFlowName = flowName;
+    // Reset after a short delay to allow re-opening if needed
+    setTimeout(() => {
+      autoOpenFlowName = null;
+    }, 500);
+  }
+
   async function loadCheckerLatest() {
-    checkerResult = await api("/checker/latest?kind=collisions", { token });
+    const [coll, nmos] = await Promise.all([
+      api("/checker/latest?kind=collisions", { token }),
+      api("/checker/latest?kind=nmos", { token })
+    ]);
+    checkerResult = coll;
+    nmosCheckerResult = nmos;
+  }
+
+  async function runNmosCheck() {
+    error = "";
+    try {
+      const result = await api("/checker/nmos?timeout=5", { token });
+      nmosCheckerResult = { kind: "nmos", result, created_at: new Date().toISOString() };
+      addNotification("success", "NMOS difference check completed.");
+      await loadDashboard();
+    } catch (e) {
+      addNotification("error", e.message);
+    }
   }
 
   async function loadAutomationJobs() {
-    if (!(user?.role === "admin" || user?.role === "editor")) return;
+    if (!canEdit) return;
     automationJobs = await api("/automation/jobs", { token });
     automationSummary = await api("/automation/summary", { token }).catch(() => automationSummary);
   }
@@ -946,7 +1382,7 @@
       });
       await loadAutomationJobs();
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -978,9 +1414,9 @@
       newPlannerParent = { parent_id: selectedPlannerRoot?.id || null, name: "", cidr: "", description: "", color: "" };
       await loadPlannerRoots();
       if (selectedPlannerRoot) await selectPlannerRoot(selectedPlannerRoot);
-      success = "Planner parent bucket created.";
+      addNotification("success", "Planner parent bucket created.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -994,9 +1430,9 @@
       });
       newPlannerChild = { parent_id: null, name: "", cidr: "", description: "", color: "" };
       await selectPlannerRoot(selectedPlannerRoot);
-      success = "Planner child bucket created.";
+      addNotification("success", "Planner child bucket created.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -1011,7 +1447,7 @@
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -1023,9 +1459,9 @@
       await api("/address/buckets/import", { method: "POST", token, body: payload });
       await loadPlannerRoots();
       if (selectedPlannerRoot) await selectPlannerRoot(selectedPlannerRoot);
-      success = "Planner buckets imported.";
+      addNotification("success", "Planner buckets imported.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     } finally {
       event.target.value = "";
     }
@@ -1043,9 +1479,9 @@
         body: { name: newName, description: newDesc }
       });
       if (selectedPlannerRoot) await selectPlannerRoot(selectedPlannerRoot);
-      success = "Bucket updated.";
+      addNotification("success", "Bucket updated.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
@@ -1054,32 +1490,33 @@
     try {
       await api(`/address/buckets/${item.id}`, { method: "DELETE", token });
       if (selectedPlannerRoot) await selectPlannerRoot(selectedPlannerRoot);
-      success = "Bucket deleted.";
+      addNotification("success", "Bucket deleted.");
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
   async function loadLogs() {
-    error = "";
     try {
       const data = await api(`/logs?kind=${encodeURIComponent(logsKind)}&lines=300`, { token });
       logsLines = data.lines || [];
     } catch (e) {
-      error = e.message;
+      addNotification("error", e.message);
     }
   }
 
   async function loadNMOSRegistry() {
     try {
-      const [nodes, devices, senders, receivers] = await Promise.all([
+      const [nodes, devices, flows, senders, receivers] = await Promise.all([
         api("/nmos/registry/nodes", { token }),
         api("/nmos/registry/devices", { token }),
+        api("/nmos/registry/flows", { token }),
         api("/nmos/registry/senders", { token }),
         api("/nmos/registry/receivers", { token })
       ]);
       registryNodes = nodes;
       registryDevices = devices;
+      registryFlows = flows;
       registrySenders = senders;
       registryReceivers = receivers;
       registryHealth = await api("/nmos/registry/health", { token }).catch(() => registryHealth);
@@ -1100,7 +1537,7 @@
       // Refresh flows if we're on flows view
       if (currentView === "flows" || currentView === "dashboard") {
         loadFlows().then((data) => {
-          flows = data;
+          flows = Array.isArray(data) ? [...data] : [];
         });
       }
       // Refresh summary
@@ -1144,7 +1581,7 @@
       }
     })();
 
-    // Connect to registry WebSocket feed (no auth, informational only)
+    // Registry WebSocket: live update — on sync event refresh registry data (no page refresh)
     try {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
@@ -1153,6 +1590,10 @@
         try {
           const data = JSON.parse(event.data);
           registryEvents = [data, ...registryEvents].slice(0, 50);
+          // When backend registry sync completes, refresh UI (nodes/senders/receivers)
+          if (data?.kind === "sync" || data?.resource === "nmos_registry") {
+            loadNMOSRegistry();
+          }
         } catch (e) {
           console.error("Registry WS parse error:", e);
         }
@@ -1243,14 +1684,6 @@
       </button>
     {/if}
     <button
-      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmos'
-        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
-        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      onclick={() => (currentView = "nmos")}
-    >
-      NMOS
-    </button>
-    <button
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'topology'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
@@ -1259,15 +1692,18 @@
         loadNMOSRegistry();
       }}
     >
-      Topology
+      Registry & Patch
     </button>
     <button
-      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'nmosPatch'
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'systemTopology'
         ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
         : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
-      onclick={() => (currentView = "nmosPatch")}
+      onclick={() => {
+        currentView = "systemTopology";
+        loadNMOSRegistry();
+      }}
     >
-      NMOS Patch
+      Topology
     </button>
     <button
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'checker'
@@ -1277,7 +1713,7 @@
     >
       Checker
     </button>
-    {#if user?.role === "admin" || user?.role === "editor"}
+    {#if canEdit}
       <button
         class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'automation'
           ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
@@ -1285,6 +1721,22 @@
         onclick={() => (currentView = "automation")}
       >
         Automation
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'playbooks'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+        onclick={() => (currentView = "playbooks")}
+      >
+        Playbooks
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'scheduling'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+        onclick={() => (currentView = "scheduling")}
+      >
+        Schedule
       </button>
     {/if}
     <button
@@ -1302,6 +1754,38 @@
       onclick={() => (currentView = "migration")}
     >
       Migration
+    </button>
+    <button
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'audio'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+      onclick={() => (currentView = "audio")}
+    >
+      Audio (IS-08)
+    </button>
+    <button
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'signalChain'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+      onclick={() => (currentView = "signalChain")}
+    >
+      Signal chain
+    </button>
+    <button
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'events'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+      onclick={() => (currentView = "events")}
+    >
+      Events
+    </button>
+    <button
+      class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'multiSite'
+        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+      onclick={() => (currentView = "multiSite")}
+    >
+      Multi-Site
     </button>
     <button
       class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'addressMap'
@@ -1330,6 +1814,22 @@
         }}
       >
         Logs
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'metrics'
+          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+        onclick={() => (currentView = "metrics")}
+      >
+        Metrics
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-md border transition-all duration-150 {currentView === 'interop'
+          ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+          : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 hover:border-gray-600'}"
+        onclick={() => (currentView = "interop")}
+      >
+        Interop Tests
       </button>
     {/if}
     <button
@@ -1380,10 +1880,6 @@
     </div>
   {/if}
 
-  {#if success}
-    <p class="text-xs font-semibold text-svelte">{success}</p>
-  {/if}
-
   {#if loading}
     <div class="space-y-6">
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4">
@@ -1396,18 +1892,6 @@
       </div>
       <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm p-6">
         <SkeletonLoader lines={8} showHeader={true} />
-      </div>
-    </div>
-  {:else if error}
-    <div class="bg-red-950/50 border border-red-700 rounded-lg p-4">
-      <div class="flex items-start gap-3">
-        <svg class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-        </svg>
-        <div class="flex-1">
-          <h3 class="text-red-300 font-semibold mb-1">Error</h3>
-          <p class="text-red-200/80 text-sm">{error}</p>
-        </div>
       </div>
     </div>
   {:else}
@@ -1426,18 +1910,23 @@
         {healthError}
         {lastHealthLoadedAt}
         onRunHealthDetail={loadHealthDetail}
+        onCreateFlow={handleCreateFlowFromDashboard}
         {nodeCheckUrl}
         {nodeCheckLoading}
         {nodeCheckError}
         {nodeCheckResult}
         onNodeUrlChange={(v) => (nodeCheckUrl = v)}
         onRunNodeCheck={checkNodeAtUrl}
+        {registryConfigs}
+        {registryCompat}
+        {sitesRoomsSummary}
       />
     {/if}
 
     {#if currentView === "flows"}
       <FlowsView
         {flows}
+        {token}
         bind:flowLimit
         bind:flowOffset
         {flowTotal}
@@ -1445,7 +1934,7 @@
         bind:flowSortOrder
         {canEdit}
         {isAdmin}
-        {newFlow}
+        bind:newFlow
         onApplyFlowSort={applyFlowSort}
         onPrevFlowPage={prevFlowPage}
         onNextFlowPage={nextFlowPage}
@@ -1454,11 +1943,14 @@
         onCreateFlow={createFlow}
         onEditFlow={openEditFlowModal}
         onUpdateFlow={updateFlow}
+        onPatchFlow={patchFlow}
         onCheckFlow={checkFlowNMOS}
         onFetchSDP={fetchFlowSDP}
         onSyncFromNMOS={syncFlowFromNMOS}
         onCheckIS05Receiver={checkIS05Receiver}
         {editingFlow}
+        {autoOpenFlowName}
+        autoOpenModal={shouldAutoOpenFlowModal}
       />
     {/if}
 
@@ -1476,7 +1968,7 @@
     {/if}
 
 
-    {#if currentView === "users" && (user?.role === "admin" || user?.role === "editor")}
+    {#if currentView === "users" && isAdmin}
       <UsersView
         {users}
         {isAdmin}
@@ -1498,118 +1990,119 @@
         {sdnPingError}
         {sdnPingResult}
         onPingSDN={pingSDNController}
-      />
-    {/if}
-
-    {#if currentView === "nmos"}
-      <NMOSView
-        {nmosBaseUrl}
-        {nmosResult}
-        {nmosIS05Base}
-        {flows}
-        {selectedNMOSFlow}
-        {selectedNMOSReceiver}
-        {nmosTakeBusy}
-        onBaseUrlChange={(v) => (nmosBaseUrl = v)}
-        onDiscoverNMOS={discoverNMOS}
-        onIS05BaseChange={(v) => (nmosIS05Base = v)}
-        onSelectFlow={(f) => (selectedNMOSFlow = f)}
-        onSelectReceiver={(r) => (selectedNMOSReceiver = r)}
-        onExecuteTake={executeNMOSTake}
-        isTakeReady={isTakeReady}
+        onFetchSDNTopology={fetchSDNTopology}
+        onFetchSDNPaths={fetchSDNPaths}
+        {registryConfigs}
+        onSaveRegistryConfigs={saveRegistryConfigs}
+        onRemoveRegistry={removeRegistry}
+        {token}
       />
     {/if}
 
     {#if currentView === "topology"}
-      <TopologyView
+      <RegistryPatchView
         {registryNodes}
         {registryDevices}
         {registrySenders}
         {registryReceivers}
-        {selectedRegistryNodeId}
-        {selectedRegistryDeviceId}
-        onSelectNode={(id) => {
+        selectedSenderNodeId={selectedRegistryNodeId}
+        selectedReceiverNodeId={selectedReceiverNodeId}
+        selectedRegistryDeviceId={selectedRegistryDeviceId}
+        onSelectSenderNode={async (id) => {
           selectedRegistryNodeId = id;
-          selectedRegistryDeviceId = "";
         }}
-        onSelectDevice={(id) => (selectedRegistryDeviceId = id)}
-        {isPatchTakeReady}
-        {selectedPatchSender}
-        {selectedPatchReceiver}
+        onSelectReceiverNode={async (id) => {
+          selectedReceiverNodeId = id;
+          await discoverIS05BaseForNode(id);
+        }}
+        onSelectDevice={async (id) => {
+          selectedRegistryDeviceId = id;
+          const dev = registryDevices.find((d) => d.id === id);
+          if (dev?.node_id) selectedRegistryNodeId = dev.node_id;
+        }}
+        isPatchTakeReady={isPatchTakeReady}
+        selectedPatchSender={selectedPatchSender}
+        selectedPatchReceiver={selectedPatchReceiver}
         {nmosIS05Base}
         {nmosTakeBusy}
-        onSelectPatchSender={(s) => (selectedPatchSender = s)}
-        onSelectPatchReceiver={(r) => (selectedPatchReceiver = r)}
+        onSelectPatchSender={(s) => {
+          selectedPatchSender = s;
+          if (selectedPatchReceiver) {
+            discoverIS05BaseForReceiver(selectedPatchReceiver);
+          }
+        }}
+        onSelectPatchReceiver={async (r) => {
+          selectedPatchReceiver = r;
+          await discoverIS05BaseForReceiver(r);
+        }}
         onExecutePatchTake={executePatchTake}
-      />
-    {/if}
-
-    {#if currentView === "nmosPatch"}
-      <NMOSPatchView
-        {nmosNodes}
-        {selectedSenderNodeId}
-        {selectedReceiverNodeId}
-        {senderNodeSenders}
-        {receiverNodeReceivers}
-        {selectedPatchSender}
-        {selectedPatchReceiver}
-        {nmosIS05Base}
+        {flows}
+        {token}
         {nmosPatchStatus}
         {nmosPatchError}
-        {nmosTakeBusy}
-        {senderFilterText}
-        {receiverFilterText}
-        {senderFormatFilter}
-        {receiverFormatFilter}
-        {showAddNodeModal}
-        {newNodeName}
-        {newNodeUrl}
-        {showConnectRDSModal}
-        registryQueryUrl={rdsQueryUrl}
-        registryDiscovering={rdsDiscovering}
-        registryNodes={rdsNodes}
-        registrySelectedIds={rdsSelectedIds}
-        registryError={rdsError}
-        onReloadNodes={loadNodes}
-        onOpenAddNode={openAddNodeModal}
-        onCancelAddNode={cancelAddNode}
-        onConfirmAddNode={addNode}
-        onChangeNewNodeName={(v) => (newNodeName = v)}
-        onChangeNewNodeUrl={(v) => (newNodeUrl = v)}
+        {nmosPatchWarning}
+        refreshReceiverActiveTrigger={refreshReceiverActiveTrigger}
+        discoverAtUrlResult={discoverAtUrlResult}
+        pendingRegisterUrl={pendingRegisterUrl}
+        discoverAtUrlLoading={discoverAtUrlLoading}
+        onDiscoverAtUrl={discoverAtUrl}
+        onRegisterDiscoveredNode={registerDiscoveredNode}
+        onCloseRegisterConfirm={closeRegisterConfirm}
+        onDeleteNode={deleteRegistryNode}
+        {canEdit}
+        showConnectRDSModal={showConnectRDSModal}
+        rdsQueryUrl={rdsQueryUrl}
+        rdsDiscovering={rdsDiscovering}
+        rdsNodes={rdsNodes}
+        rdsSelectedIds={rdsSelectedIds}
+        rdsError={rdsError}
         onOpenRDS={openRDSModal}
         onCloseRDS={closeRDSModal}
         onChangeRegistryQueryUrl={(v) => (rdsQueryUrl = v)}
         onDiscoverRegistryNodes={discoverRegistryNodes}
         onToggleRegistryNode={toggleRegistryNode}
         onSelectAllRegistryNodes={selectAllRegistryNodes}
-        onAddSelectedRegistryNodes={addSelectedRegistryNodes}
-        onSelectSenderNode={(id) => {
-          selectedSenderNodeId = id;
-          loadSenderNode(id);
-        }}
-        onSelectReceiverNode={(id) => {
-          selectedReceiverNodeId = id;
-          loadReceiverNode(id);
-        }}
-        onUpdateSenderFilterText={(v) => (senderFilterText = v)}
-        onUpdateReceiverFilterText={(v) => (receiverFilterText = v)}
-        onUpdateSenderFormatFilter={(v) => (senderFormatFilter = v)}
-        onUpdateReceiverFormatFilter={(v) => (receiverFormatFilter = v)}
-        onSelectPatchSender={(s) => (selectedPatchSender = s)}
-        onSelectPatchReceiver={(r) => (selectedPatchReceiver = r)}
-        onExecutePatchTake={executePatchTake}
-        {isPatchTakeReady}
-        {filterSenders}
-        {filterReceivers}
+        onRegisterSelectedToRegistry={registerSelectedNodesToRegistry}
+        onReloadRegistry={reloadRegistry}
+        reloadRegistrySyncing={reloadRegistrySyncing}
+        registryConfigs={registryConfigs}
+        registryStats={registryStats}
+        onReloadRegistryUrl={reloadRegistryByUrl}
+        onUpdateRegistry={updateRegistry}
+        onRemoveRegistry={removeRegistry}
+      />
+    {/if}
+    {#if currentView === "systemTopology"}
+      <TopologyView
+        {registryNodes}
+        {registryDevices}
+        {registrySenders}
+        {registryReceivers}
+        {token}
       />
     {/if}
 
     {#if currentView === "checker"}
-      <CheckerView {checkerResult} onRunCollisionCheck={runCollisionCheck} />
+      <CheckerView
+        {checkerResult}
+        nmosCheckerResult={nmosCheckerResult}
+        {token}
+        onRunCollisionCheck={runCollisionCheck}
+        onRunNmosCheck={runNmosCheck}
+        onFlowClick={handleCheckerFlowClick}
+      />
     {/if}
 
-    {#if currentView === "automation" && (user?.role === "admin" || user?.role === "editor")}
+    {#if currentView === "automation" && canEdit}
       <AutomationJobsView {automationJobs} {isAdmin} onToggleAutomationJob={toggleAutomationJob} />
+    {/if}
+
+    {#if currentView === "playbooks" && canEdit}
+      <PlaybooksView {token} {isAdmin} canEdit={canEdit} userRole={user?.role || "viewer"} />
+    {/if}
+
+    {#if currentView === "scheduling" && canEdit}
+      <SchedulingView {token} {isAdmin} canEdit={canEdit} />
     {/if}
 
     {#if currentView === "planner"}
@@ -1621,6 +2114,7 @@
         {newPlannerChild}
         {canEdit}
         {isAdmin}
+        {token}
         onSelectPlannerRoot={selectPlannerRoot}
         onPlannerQuickEdit={plannerQuickEdit}
         onPlannerDelete={plannerDelete}
@@ -1634,9 +2128,41 @@
     {#if currentView === "migration"}
       <MigrationChecklistView onOpenBlog={openMigrationBlog} />
     {/if}
+    {#if currentView === "audio"}
+      <AudioMappingView {token} />
+    {/if}
+    {#if currentView === "signalChain"}
+      <AudioChainView {token} />
+    {/if}
+    {#if currentView === "events"}
+      <EventsView {token} />
+    {/if}
+
+    {#if currentView === "multiSite"}
+      <MultiSiteView {token} {sitesRoomsSummary} />
+    {/if}
 
     {#if currentView === "addressMap"}
-      <AddressMapView {addressMap} />
+      <AddressMapView 
+        {addressMap} 
+        {token} 
+        onNavigateToPlanner={(bucketId) => {
+          currentView = "planner";
+          // Try to find and select the bucket's parent root
+          if (bucketId && plannerRoots.length > 0) {
+            // Find bucket in children
+            const bucket = plannerChildren.find(b => b.id === bucketId);
+            if (bucket && bucket.parent_id) {
+              const parent = plannerRoots.find(r => r.id === bucket.parent_id);
+              if (parent) {
+                selectPlannerRoot(parent);
+              }
+            } else if (plannerRoots.length > 0) {
+              selectPlannerRoot(plannerRoots[0]);
+            }
+          }
+        }}
+      />
     {/if}
 
     {#if currentView === "portExplorer" && isAdmin}
@@ -1645,6 +2171,14 @@
 
     {#if currentView === "logs" && isAdmin}
       <LogsView bind:logsKind {logsLines} {token} onLoadLogs={loadLogs} />
+    {/if}
+
+    {#if currentView === "metrics"}
+      <MetricsView {token} />
+    {/if}
+
+    {#if currentView === "interop"}
+      <InteropView {token} />
     {/if}
   {/if}
   </div>

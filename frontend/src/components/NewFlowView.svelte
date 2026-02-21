@@ -1,4 +1,6 @@
 <script>
+  import { api } from "../lib/api.js";
+
   let {
     newFlow,
     onCreateFlow,
@@ -6,18 +8,29 @@
     onClose,
     isOpen = false,
     editingFlow = null, // If set, we're editing an existing flow
+    token = "",
   } = $props();
 
   let isSubmitting = $state(false);
+  let collisionCheck = $state(null);
+  let checkingCollision = $state(false);
+  let buckets = $state([]);
+  let loadingBuckets = $state(false);
 
   async function handleSubmit() {
     if (isSubmitting) return;
+    // Warn if collision detected
+    if (collisionCheck?.has_collision) {
+      if (!confirm(`Warning: This IP:Port combination conflicts with ${collisionCheck.conflict_count} flow(s). Do you want to continue anyway?`)) {
+        return;
+      }
+    }
     isSubmitting = true;
     try {
       if (editingFlow) {
-        await onUpdateFlow?.();
+        await onUpdateFlow?.(newFlow);
       } else {
-        await onCreateFlow?.();
+        await onCreateFlow?.(newFlow);
       }
       onClose?.();
     } finally {
@@ -38,6 +51,74 @@
       ? (isEditMode ? "Updating..." : "Creating...")
       : (isEditMode ? "Update Flow" : "Create Flow")
   );
+
+  // Real-time collision checking
+  let collisionCheckTimeout = null;
+  async function checkCollision() {
+    if (!newFlow.multicast_ip || !newFlow.port) {
+      collisionCheck = null;
+      return;
+    }
+
+    // Clear previous timeout
+    if (collisionCheckTimeout) {
+      clearTimeout(collisionCheckTimeout);
+    }
+
+    // Debounce: wait 500ms after user stops typing
+    collisionCheckTimeout = setTimeout(async () => {
+      checkingCollision = true;
+      try {
+        const excludeFlowID = editingFlow?.id || null;
+        const url = `/checker/check?multicast_ip=${encodeURIComponent(newFlow.multicast_ip)}&port=${newFlow.port}${excludeFlowID ? `&exclude_flow_id=${excludeFlowID}` : ''}`;
+        collisionCheck = await api(url, { token });
+      } catch (e) {
+        collisionCheck = null;
+      } finally {
+        checkingCollision = false;
+      }
+    }, 500);
+  }
+
+  // Watch for changes in multicast_ip and port
+  $effect(() => {
+    if (newFlow.multicast_ip && newFlow.port) {
+      checkCollision();
+    } else {
+      collisionCheck = null;
+    }
+  });
+
+  // Load buckets only when modal transitions from closed -> open
+  let wasOpen = $state(false);
+
+  $effect(() => {
+    if (isOpen && !wasOpen && token) {
+      loadBuckets();
+    }
+    wasOpen = isOpen;
+  });
+
+  async function loadBuckets() {
+    if (loadingBuckets) return;
+    loadingBuckets = true;
+    try {
+      buckets = await api("/address/buckets/all", { token });
+    } catch (e) {
+      console.error("Failed to load buckets:", e);
+      buckets = [];
+    } finally {
+      loadingBuckets = false;
+    }
+  }
+
+  function getBucketDisplayName(bucket) {
+    if (bucket.parent_id) {
+      const parent = buckets.find(b => b.id === bucket.parent_id);
+      return parent ? `${parent.name} / ${bucket.name}` : bucket.name;
+    }
+    return bucket.name;
+  }
 </script>
 
 {#if isOpen}
@@ -89,13 +170,63 @@
             <label for="multicast_ip" class="block text-sm font-medium text-gray-300">
               Multicast IP *
             </label>
-            <input
-              id="multicast_ip"
-              type="text"
-              bind:value={newFlow.multicast_ip}
-              placeholder="239.0.0.1"
-              class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
-            />
+            <div class="relative">
+              <input
+                id="multicast_ip"
+                type="text"
+                bind:value={newFlow.multicast_ip}
+                placeholder="239.0.0.1"
+                class="w-full px-4 py-2 bg-gray-900 border rounded-md text-gray-100 placeholder-gray-500 focus:outline-none transition-colors {collisionCheck?.has_collision ? 'border-red-500 focus:border-red-500' : 'border-gray-700 focus:border-orange-500'}"
+              />
+              {#if checkingCollision}
+                <div class="absolute right-3 top-2.5">
+                  <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                </div>
+              {/if}
+            </div>
+            {#if collisionCheck?.has_collision}
+              <div class="mt-1 p-3 bg-red-900/20 border border-red-700 rounded text-xs text-red-300">
+                <p class="font-medium">⚠️ Collision detected!</p>
+                <p class="mt-1">This IP:Port combination conflicts with {collisionCheck.conflict_count} flow(s):</p>
+                <ul class="mt-1 list-disc list-inside mb-2">
+                  {#each (collisionCheck.conflicting_flows || []) as flowName}
+                    <li>{flowName}</li>
+                  {/each}
+                </ul>
+                {#if collisionCheck.alternatives && collisionCheck.alternatives.length > 0}
+                  <div class="mt-3 pt-3 border-t border-red-700">
+                    <p class="font-medium mb-2">💡 Suggested alternatives:</p>
+                    <div class="space-y-1.5">
+                      {#each collisionCheck.alternatives as alt}
+                        <button
+                          onclick={() => {
+                            newFlow.multicast_ip = alt.multicast_ip;
+                            newFlow.port = alt.port;
+                          }}
+                          class="w-full text-left px-2 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded text-[11px] transition-colors flex items-center justify-between group"
+                        >
+                          <span class="text-gray-200">
+                            <span class="font-mono">{alt.multicast_ip}</span>
+                            <span class="text-gray-400 mx-1">:</span>
+                            <span class="font-mono">{alt.port}</span>
+                            {#if alt.reason === 'same_subnet_available'}
+                              <span class="ml-2 text-gray-400">(same subnet)</span>
+                            {:else if alt.reason === 'different_port'}
+                              <span class="ml-2 text-gray-400">(different port)</span>
+                            {:else if alt.reason === 'different_subnet'}
+                              <span class="ml-2 text-gray-400">(different subnet)</span>
+                            {/if}
+                          </span>
+                          <span class="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">Apply →</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {:else if collisionCheck && !collisionCheck.has_collision && newFlow.multicast_ip && newFlow.port}
+              <div class="mt-1 text-xs text-green-400">✓ No collision detected</div>
+            {/if}
           </div>
 
           <div class="space-y-2">
@@ -120,7 +251,7 @@
               type="number"
               bind:value={newFlow.port}
               placeholder="5004"
-              class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
+              class="w-full px-4 py-2 bg-gray-900 border rounded-md text-gray-100 placeholder-gray-500 focus:outline-none transition-colors {collisionCheck?.has_collision ? 'border-red-500 focus:border-red-500' : 'border-gray-700 focus:border-orange-500'}"
             />
           </div>
 
@@ -165,6 +296,23 @@
               placeholder="RTP"
               class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500 transition-colors"
             />
+          </div>
+
+          <div class="space-y-2">
+            <label for="bucket_id" class="block text-sm font-medium text-gray-300">
+              Planner Bucket (Optional)
+            </label>
+            <select
+              id="bucket_id"
+              bind:value={newFlow.bucket_id}
+              class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 focus:outline-none focus:border-orange-500 transition-colors"
+            >
+              <option value={null}>None</option>
+              {#each buckets as bucket}
+                <option value={bucket.id}>{getBucketDisplayName(bucket)} {bucket.cidr ? `(${bucket.cidr})` : ''}</option>
+              {/each}
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Assign this flow to a planner bucket for organization</p>
           </div>
 
           <div class="space-y-2 md:col-span-2">

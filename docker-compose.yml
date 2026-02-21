@@ -10,6 +10,12 @@ services:
       - go_nmos_db:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d go_nmos"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   mqtt:
     image: eclipse-mosquitto:2
@@ -26,9 +32,18 @@ services:
     container_name: go-nmos-backend
     env_file:
       - ./backend/.env
+    environment:
+      # Override for Docker: connect to db service (ignore DATABASE_URL from .env if it points to host)
+      DATABASE_URL: postgres://postgres:postgres@db:5432/go_nmos?sslmode=disable
+      # Container listens on 8080; host 9090 is mapped to container 8080
+      APP_PORT: "8080"
+      # Broker is the mqtt service in same compose; localhost from .env would point to container itself
+      MQTT_BROKER_URL: tcp://mqtt:1883
     depends_on:
-      - db
-      - mqtt
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
     volumes:
       - ./logs:/tmp/go-nmos-logs
       - ./certs:/certs:ro

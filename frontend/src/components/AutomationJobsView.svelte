@@ -22,6 +22,7 @@
           <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Job ID</th>
           <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Type</th>
           <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Schedule</th>
+          <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Next run</th>
           <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Status</th>
           {#if isAdmin}
             <th class="text-left border-b border-gray-800 px-4 py-3 font-medium text-gray-200">Action</th>
@@ -31,7 +32,7 @@
       <tbody class="divide-y divide-gray-800">
         {#if automationJobs.length === 0}
           <tr>
-            <td colspan={isAdmin ? 5 : 4} class="px-6 py-12">
+            <td colspan={isAdmin ? 6 : 5} class="px-6 py-12">
               <EmptyState
                 title="No automation jobs"
                 message="No scheduled automation jobs configured."
@@ -46,6 +47,13 @@
               <td class="px-4 py-3 text-gray-300">{job.job_type}</td>
               <td class="px-4 py-3 text-gray-300">
                 <span class="text-[11px]">{job.schedule_type}: {job.schedule_value}</span>
+              </td>
+              <td class="px-4 py-3 text-gray-400 text-[11px]">
+                {#if job.next_run_at}
+                  {new Date(job.next_run_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                {:else}
+                  —
+                {/if}
               </td>
               <td class="px-4 py-3">
                 <span

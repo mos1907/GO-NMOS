@@ -35,6 +35,14 @@ func (f *fakeAutomationRepo) DetectCollisions(ctx context.Context) ([]models.Col
 	}, nil
 }
 
+func (f *fakeAutomationRepo) ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error) {
+	return nil, nil
+}
+
+func (f *fakeAutomationRepo) ListNMOSSenders(ctx context.Context, deviceID string) ([]models.NMOSSender, error) {
+	return nil, nil
+}
+
 func (f *fakeAutomationRepo) SaveCheckerResult(ctx context.Context, kind string, result []byte) error {
 	f.saves = append(f.saves, struct {
 		kind   string

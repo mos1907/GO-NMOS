@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"go-nmos/backend/internal/alerting"
 	"go-nmos/backend/internal/config"
 	"go-nmos/backend/internal/db"
 	"go-nmos/backend/internal/http/handlers"
@@ -60,8 +61,30 @@ func main() {
 
 	runnerCtx, runnerCancel := context.WithCancel(context.Background())
 	defer runnerCancel()
-	runner := service.NewAutomationRunner(repo)
-	go runner.Start(runnerCtx)
+	automationRunner := service.NewAutomationRunner(repo)
+	go automationRunner.Start(runnerCtx)
+	scheduledRunner := service.NewScheduledActivationsRunner(repo)
+	go scheduledRunner.Start(runnerCtx)
+
+	// E.2: Scheduled playbook executions runner
+	scheduledPlaybooksRunner := service.NewScheduledPlaybooksRunner(repo)
+	go scheduledPlaybooksRunner.Start(runnerCtx)
+
+	// F.3: Alert monitoring
+	alertHooks := []alerting.AlertHook{
+		alerting.NewLoggerHook(), // Always log alerts
+	}
+	// Add webhook hook if configured
+	if webhookURL := os.Getenv("ALERT_WEBHOOK_URL"); webhookURL != "" {
+		alertHooks = append(alertHooks, alerting.NewWebhookHook(webhookURL, nil))
+	}
+	// Add Slack hook if configured
+	if slackWebhookURL := os.Getenv("ALERT_SLACK_WEBHOOK_URL"); slackWebhookURL != "" {
+		alertHooks = append(alertHooks, alerting.NewSlackHook(slackWebhookURL))
+	}
+	alertManager := alerting.NewAlertManager(alertHooks...)
+	alertMonitor := service.NewAlertMonitor(repo, alertManager)
+	go alertMonitor.Start(runnerCtx)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

@@ -13,6 +13,10 @@
   let error = $state("");
   let isLocal = $state(true);
   let showLocalWarning = $state(false);
+  let registeringNodes = $state(new Set());
+  let registrationSuccess = $state("");
+  let showRegisterConfirm = $state(false);
+  let pendingRegisterUrlForConfirm = $state("");
 
   // Load saved settings from localStorage
   onMount(() => {
@@ -160,6 +164,43 @@
     return "text-gray-400";
   }
 
+  function askRegisterNode(baseURL) {
+    if (!baseURL) return;
+    pendingRegisterUrlForConfirm = baseURL;
+    showRegisterConfirm = true;
+  }
+
+  function closeRegisterConfirm() {
+    showRegisterConfirm = false;
+    pendingRegisterUrlForConfirm = "";
+  }
+
+  async function registerNode(baseURL) {
+    if (!baseURL || registeringNodes.has(baseURL)) return;
+    closeRegisterConfirm();
+    registeringNodes.add(baseURL);
+    registrationSuccess = "";
+    error = "";
+
+    try {
+      const response = await api("/nmos/register-node", {
+        method: "POST",
+        token,
+        body: { base_url: baseURL }
+      });
+
+      registrationSuccess = `Node registered successfully! Found ${response.devices || 0} devices, ${response.flows || 0} flows, ${response.senders || 0} senders, ${response.receivers || 0} receivers.`;
+
+      setTimeout(() => {
+        registrationSuccess = "";
+      }, 5000);
+    } catch (e) {
+      error = e.message || "Failed to register node";
+    } finally {
+      registeringNodes.delete(baseURL);
+    }
+  }
+
   const foundNMOS = results.filter((r) => r.is_nmos).length;
   const sortedResults = [...results].sort((a, b) => {
     if (a.is_nmos !== b.is_nmos) return b.is_nmos ? 1 : -1;
@@ -187,7 +228,7 @@
             You are scanning a non-local network address. Make sure you have authorization to scan this host.
           </p>
           <button
-            on:click={() => (showLocalWarning = false)}
+            onclick={() => (showLocalWarning = false)}
             class="mt-2 text-amber-300 hover:text-amber-200 text-sm underline"
           >
             I understand, continue
@@ -205,7 +246,7 @@
           id="host"
           type="text"
           bind:value={host}
-          on:input={checkLocalHost}
+          oninput={checkLocalHost}
           placeholder="192.168.1.100"
           class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:border-orange-500"
         />
@@ -269,9 +310,13 @@
     {#if error}
       <div class="bg-red-950/50 border border-red-700 rounded-lg p-3 text-red-300 text-sm">{error}</div>
     {/if}
+    
+    {#if registrationSuccess}
+      <div class="bg-green-950/50 border border-green-700 rounded-lg p-3 text-green-300 text-sm">{registrationSuccess}</div>
+    {/if}
 
     <button
-      on:click={startScan}
+      onclick={startScan}
       disabled={scanning}
       class="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
     >
@@ -291,7 +336,7 @@
             Scan Results ({foundNMOS} NMOS found)
           </h3>
           <button
-            on:click={() => copyToClipboard(JSON.stringify(results, null, 2))}
+            onclick={() => copyToClipboard(JSON.stringify(results, null, 2))}
             class="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors"
           >
             Copy All
@@ -348,19 +393,57 @@
                   {/if}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">
-                  {#if result.base_url}
-                    <button
-                      on:click={() => copyToClipboard(result.base_url)}
-                      class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs transition-colors"
-                    >
-                      Copy URL
-                    </button>
-                  {/if}
+                  <div class="flex gap-2">
+                    {#if result.base_url}
+                      <button
+                        onclick={() => copyToClipboard(result.base_url)}
+                        class="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs transition-colors"
+                      >
+                        Copy URL
+                      </button>
+                    {/if}
+                    {#if result.is_nmos && result.is_is04}
+                      <button
+                        onclick={() => askRegisterNode(result.base_url)}
+                        disabled={registeringNodes.has(result.base_url)}
+                        class="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded text-xs transition-colors"
+                      >
+                        {registeringNodes.has(result.base_url) ? "Registering..." : "Register Node"}
+                      </button>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
+      </div>
+    </div>
+  {/if}
+
+  {#if showRegisterConfirm && pendingRegisterUrlForConfirm}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="port-explorer-register-title">
+      <div class="bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
+        <h3 id="port-explorer-register-title" class="text-base font-semibold text-gray-100">Register node to registry?</h3>
+        <p class="text-sm text-gray-300">
+          Register this NMOS node at <code class="px-1 py-0.5 rounded bg-gray-800 text-gray-200 break-all">{pendingRegisterUrlForConfirm}</code>?
+        </p>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            onclick={closeRegisterConfirm}
+            class="px-3 py-2 rounded-md border border-gray-600 text-gray-300 hover:bg-gray-800 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onclick={() => registerNode(pendingRegisterUrlForConfirm)}
+            class="px-3 py-2 rounded-md bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium"
+          >
+            Register
+          </button>
+        </div>
       </div>
     </div>
   {/if}

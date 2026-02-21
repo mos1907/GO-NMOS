@@ -1,0 +1,31 @@
+# RDS_NODE_URLS: Backend runs in a different compose, so it cannot resolve "camera-node".
+# Using host.docker.internal:8180 lets RDS return this URL in node list so backend can sync.
+# RDS polls the node at this URL; port 8180 is mapped from camera-node on the host.
+services:
+  rds:
+    build:
+      context: .
+      dockerfile: Dockerfile.rds
+    container_name: virtualtest_go-rds
+    ports:
+      - "6062:6062"
+    environment:
+      RDS_NODE_URLS: http://host.docker.internal:8180
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - camera-node
+
+  camera-node:
+    build:
+      context: .
+      dockerfile: Dockerfile.camera-node
+    container_name: virtualtest_go-studio-b
+    ports:
+      - "8180:8180"
+    environment:
+      PORT: "8180"
+      # So backend (different compose) can fetch SDP; manifest_href will use host.docker.internal
+      HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

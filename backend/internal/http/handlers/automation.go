@@ -3,8 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"go-nmos/backend/internal/models"
+	"go-nmos/backend/internal/schedule"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -14,6 +16,10 @@ func (h *Handler) ListAutomationJobs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list jobs failed"})
 		return
+	}
+	now := time.Now()
+	for i := range jobs {
+		jobs[i].NextRunAt = schedule.NextRun(jobs[i], now)
 	}
 	writeJSON(w, http.StatusOK, jobs)
 }
@@ -48,12 +54,15 @@ func (h *Handler) GetAutomationSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if collisions != nil && len(collisions.Result) > 0 {
-		// collisions.Result is JSON; for dashboard we only expose "total groups"
-		// { "groups": [ ... ] } → collision_count = len(groups)
+		// collisions.Result is JSON from CheckerCollisions: { "total_collisions": N, "items": [...] }
 		var payload map[string]any
 		if err := json.Unmarshal(collisions.Result, &payload); err == nil {
-			if groups, ok := payload["groups"].([]any); ok {
-				resp.CollisionCount = len(groups)
+			if items, ok := payload["items"].([]any); ok {
+				resp.CollisionCount = len(items)
+			} else if n, ok := payload["total_collisions"].(float64); ok {
+				resp.CollisionCount = int(n)
+			}
+			if resp.CollisionCount > 0 || payload["total_collisions"] != nil {
 				resp.LastUpdated = collisions.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
 			}
 		}
@@ -61,8 +70,12 @@ func (h *Handler) GetAutomationSummary(w http.ResponseWriter, r *http.Request) {
 	if nmosDiff != nil && len(nmosDiff.Result) > 0 {
 		var payload map[string]any
 		if err := json.Unmarshal(nmosDiff.Result, &payload); err == nil {
-			if n, ok := payload["difference_count"].(float64); ok {
+			if n, ok := payload["total_differences"].(float64); ok {
 				resp.NMOSDifferenceCount = int(n)
+			} else if n, ok := payload["difference_count"].(float64); ok {
+				resp.NMOSDifferenceCount = int(n)
+			}
+			if resp.NMOSDifferenceCount > 0 || payload["total_differences"] != nil {
 				if resp.LastUpdated == "" {
 					resp.LastUpdated = nmosDiff.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
 				}
@@ -108,6 +121,7 @@ func (h *Handler) GetAutomationJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
 		return
 	}
+	job.NextRunAt = schedule.NextRun(*job, time.Now())
 	writeJSON(w, http.StatusOK, job)
 }
 

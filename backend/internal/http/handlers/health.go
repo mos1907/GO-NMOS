@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -85,6 +87,9 @@ func (h *Handler) HealthDetail(w http.ResponseWriter, r *http.Request) {
 		overallStatus = "degraded"
 	}
 
+	// F.3: Generate incident hints based on detected issues
+	hints := h.generateIncidentHints(r.Context(), dbOk, mqttOk, mqttEnabled, registryOk, registryStatus, registryCounts)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":    overallStatus,
 		"timestamp": now,
@@ -110,6 +115,7 @@ func (h *Handler) HealthDetail(w http.ResponseWriter, r *http.Request) {
 				"checked": now,
 			},
 		},
+		"hints": hints,
 	})
 }
 
@@ -191,4 +197,134 @@ func (h *Handler) CheckNMOSNode(w http.ResponseWriter, r *http.Request) {
 		"latency":  elapsed.String(),
 		"checked":  time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// generateIncidentHints generates actionable hints based on detected issues (F.3)
+func (h *Handler) generateIncidentHints(ctx context.Context, dbOk, mqttOk, mqttEnabled, registryOk bool, registryStatus string, registryCounts map[string]int) []map[string]any {
+	hints := []map[string]any{}
+
+	// Database issues
+	if !dbOk {
+		hints = append(hints, map[string]any{
+			"severity": "critical",
+			"component": "database",
+			"title": "Database Connection Issue",
+			"message": "The database connection is failing. Check database connectivity and credentials.",
+			"suggestions": []string{
+				"Verify database server is running",
+				"Check database connection string in configuration",
+				"Review database logs for errors",
+				"Ensure network connectivity to database",
+			},
+		})
+	}
+
+	// MQTT issues
+	if mqttEnabled && !mqttOk {
+		suggestions := []string{
+			"Verify MQTT broker is running at " + h.cfg.MQTTBrokerURL,
+			"Check network connectivity to MQTT broker",
+			"Review MQTT broker logs",
+			"Verify MQTT credentials if authentication is required",
+		}
+		if strings.Contains(h.cfg.MQTTBrokerURL, "localhost") || strings.Contains(h.cfg.MQTTBrokerURL, "127.0.0.1") {
+			suggestions = append(suggestions, "If backend runs in Docker: set MQTT_BROKER_URL=tcp://mqtt:1883 (compose) or tcp://host.docker.internal:1883 (broker on host)")
+		}
+		hints = append(hints, map[string]any{
+			"severity":    "warning",
+			"component":   "mqtt",
+			"title":       "MQTT Broker Connection Issue",
+			"message":     "MQTT is enabled but connection to broker is failing.",
+			"suggestions": suggestions,
+		})
+	}
+
+	// Registry empty
+	if !registryOk && registryStatus == "empty" {
+		hints = append(hints, map[string]any{
+			"severity": "warning",
+			"component": "registry",
+			"title": "NMOS Registry Empty",
+			"message": "No NMOS nodes, devices, or flows are registered.",
+			"suggestions": []string{
+				"Check if NMOS nodes are powered on and connected to the network",
+				"Verify network connectivity between nodes and registry",
+				"Review registry discovery configuration",
+				"Check if nodes are configured to register with the correct registry URL",
+				"Use 'Discover NMOS Nodes' to manually discover nodes",
+			},
+		})
+	}
+
+	// Registry error
+	if !registryOk && registryStatus != "empty" {
+		hints = append(hints, map[string]any{
+			"severity": "error",
+			"component": "registry",
+			"title": "Registry Query Error",
+			"message": "Failed to query NMOS registry data.",
+			"suggestions": []string{
+				"Check database connectivity",
+				"Review application logs for registry query errors",
+				"Verify registry data integrity",
+			},
+		})
+	}
+
+	// Check for PTP domain mismatches
+	expectedPTPDomain, _ := h.repo.GetSetting(ctx, "system_ptp_domain")
+	if expectedPTPDomain != "" {
+		nodes, err := h.repo.ListNMOSNodes(ctx)
+		if err == nil {
+			mismatchCount := 0
+			for _, node := range nodes {
+				domain := node.GetNetworkDomain()
+				if domain != "" && domain != expectedPTPDomain {
+					mismatchCount++
+				}
+			}
+			if mismatchCount > 0 {
+				hints = append(hints, map[string]any{
+					"severity": "critical",
+					"component": "ptp",
+					"title": fmt.Sprintf("PTP Domain Mismatch (%d nodes)", mismatchCount),
+					"message": fmt.Sprintf("%d node(s) have PTP domain different from expected '%s'. This can cause timing synchronization issues.", mismatchCount, expectedPTPDomain),
+					"suggestions": []string{
+						"Review PTP domain configuration on affected nodes",
+						"Verify PTP grandmaster configuration",
+						"Check network PTP settings",
+						"Use System Parameters Validation to see detailed mismatch information",
+					},
+				})
+			}
+		}
+	}
+
+	// Check for repeated connection errors
+	audits, err := h.repo.ListRoutingPolicyAudits(ctx, 50)
+	if err == nil {
+		recentFailures := 0
+		now := time.Now()
+		for _, audit := range audits {
+			if audit.Action == "violation" && now.Sub(audit.CreatedAt) < 5*time.Minute {
+				recentFailures++
+			}
+		}
+		if recentFailures > 10 {
+			hints = append(hints, map[string]any{
+				"severity": "warning",
+				"component": "routing",
+				"title": "Repeated Connection Errors",
+				"message": fmt.Sprintf("Detected %d routing policy violations in the last 5 minutes.", recentFailures),
+				"suggestions": []string{
+					"Review routing policies for misconfigurations",
+					"Check network connectivity between sources and destinations",
+					"Verify flow configurations",
+					"Review routing policy audit logs for patterns",
+				},
+			})
+		}
+	}
+
+	return hints
 }

@@ -2,6 +2,7 @@
   import { get } from "svelte/store";
   import LoginPage from "./pages/LoginPage.svelte";
   import DashboardPage from "./pages/DashboardPage.svelte";
+  import GlobalNotificationPopups from "./components/GlobalNotificationPopups.svelte";
   import { auth, clearAuth } from "./stores/auth.js";
 
   let state = get(auth);
@@ -18,6 +19,7 @@
   }
 </script>
 
+<GlobalNotificationPopups />
 {#if state?.token}
   <DashboardPage token={state.token} user={state.user} onLogout={handleLogout} />
 {:else}

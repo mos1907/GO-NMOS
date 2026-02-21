@@ -14,18 +14,44 @@
   export let onSelectReceiver;
   export let onExecuteTake;
   export let isTakeReady;
+  // Optional pre-configured registries (from backend A.1 multi-registry support)
+  export let registryConfigs = [];
 </script>
 
 <div class="space-y-4">
   <div class="flex flex-wrap gap-3 items-end">
     <div class="flex flex-col gap-1">
-      <label class="text-sm font-medium text-slate-300">NMOS Node Base URL</label>
+      <label for="nmos-node-base-url" class="text-sm font-medium text-slate-300">NMOS Node Base URL</label>
       <input
+        id="nmos-node-base-url"
         value={nmosBaseUrl}
         on:input={(e) => onBaseUrlChange?.(e.target.value)}
         placeholder="http://192.168.x.x:port"
         class="px-3 py-2 rounded-md bg-slate-900 border border-slate-700 text-sm min-w-[320px]"
       />
+      {#if registryConfigs && registryConfigs.length > 0}
+        <div class="mt-1 flex items-center gap-2">
+          <select
+            class="px-2 py-1 rounded-md bg-slate-950 border border-slate-700 text-[11px] text-slate-200"
+            on:change={(e) => {
+              const idx = Number(e.target.value);
+              const cfg = registryConfigs[idx];
+              if (cfg) {
+                onBaseUrlChange?.(cfg.query_url || "");
+              }
+            }}
+          >
+            <option value="-1">Choose from configured registries…</option>
+            {#each registryConfigs as cfg, i}
+              {#if cfg.enabled}
+                <option value={i}>
+                  {cfg.name} ({cfg.role || "registry"})
+                </option>
+              {/if}
+            {/each}
+          </select>
+        </div>
+      {/if}
     </div>
     <button
       class="px-4 py-2 rounded-md bg-svelte hover:bg-orange-500 text-sm font-semibold text-white"
@@ -50,8 +76,9 @@
         </p>
       </div>
       <div class="rounded-xl bg-slate-900/60 border border-slate-800 p-4 space-y-2">
-        <label class="text-xs text-slate-400">IS-05 Base URL</label>
+        <label for="nmos-is05-base-url" class="text-xs text-slate-400">IS-05 Base URL</label>
         <input
+          id="nmos-is05-base-url"
           value={nmosIS05Base}
           on:input={(e) => onIS05BaseChange?.(e.target.value)}
           class="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-xs"

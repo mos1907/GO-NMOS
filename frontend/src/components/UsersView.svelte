@@ -86,9 +86,13 @@
                 <span
                   class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium {u.role === 'admin'
                     ? 'bg-red-900 text-red-200 border border-red-700'
-                    : u.role === 'editor'
+                    : u.role === 'engineer'
                       ? 'bg-blue-900 text-blue-200 border border-blue-700'
-                      : 'bg-gray-800 text-gray-200 border border-gray-700'}"
+                      : u.role === 'operator'
+                        ? 'bg-green-900 text-green-200 border border-green-700'
+                        : u.role === 'automation'
+                          ? 'bg-purple-900 text-purple-200 border border-purple-700'
+                          : 'bg-gray-800 text-gray-200 border border-gray-700'}"
                 >
                   {u.role}
                 </span>
@@ -171,8 +175,10 @@
             class="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-100 focus:outline-none focus:border-orange-500 transition-colors"
           >
             <option value="viewer">viewer</option>
-            <option value="editor">editor</option>
+            <option value="operator">operator</option>
+            <option value="engineer">engineer</option>
             <option value="admin">admin</option>
+            <option value="automation">automation</option>
           </select>
         </div>
       </div>

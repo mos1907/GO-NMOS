@@ -1,0 +1,61 @@
+# Docker Compose Override for Large Campus Profile
+# Usage: docker compose -f docker-compose.yml -f docker-compose.large-campus.yml up
+# Note: This is a reference. Large campuses typically use Kubernetes or similar orchestration.
+
+services:
+  backend:
+    environment:
+      # Large campus: higher rate limiting
+      - RATE_LIMIT_RPM=1200
+      # Production: auth required
+      - DISABLE_AUTH=false
+      # Production: HTTPS required
+      - HTTPS_ENABLED=true
+    # Large campus: multiple replicas behind load balancer
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '1'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  db:
+    # Large campus: HA/clustered database (reference only)
+    # In production, use managed database service or PostgreSQL HA setup
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 2G
+          cpus: '1'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    # Large campus: HA/clustered MQTT (reference only)
+    # In production, use MQTT broker cluster
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+
+  # Example: Load balancer (nginx/traefik) - not included, use external LB
+  # In production, use dedicated load balancer (nginx, traefik, cloud LB, etc.)

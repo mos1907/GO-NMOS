@@ -77,6 +77,7 @@ func (h *Handler) Router() http.Handler {
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(h.RateLimitMiddleware)
 	r.Use(h.RequestLogMiddleware)
+	r.Use(h.MetricsMiddleware)
 
 	allowedOrigin := h.cfg.CORSOrigin
 	origins := []string{allowedOrigin}
@@ -94,16 +95,49 @@ func (h *Handler) Router() http.Handler {
 
 	r.Get("/api/health", h.Health)
 	r.Post("/api/login", h.Login)
+	// Prometheus metrics endpoint (no auth required for scraping)
+	r.Get("/metrics", h.MetricsHandler)
 	// WebSocket endpoint for NMOS registry events (no auth; informational only)
 	r.Get("/ws/registry", h.RegistryEventsWS)
+
+	// IS-04 Query API (Registry only, per AMWA spec): external NMOS clients (e.g. BCC) discover
+	// senders, receivers, flows, devices, nodes at /x-nmos/query/<ver>/... (no auth).
+	r.Get("/x-nmos/query", h.QueryCompatVersions)
+	r.Get("/x-nmos/query/", h.QueryCompatVersions)
+	r.Route("/x-nmos/query/{version}", func(q chi.Router) {
+		q.Get("/", h.QueryCompatVersionRoot)
+		q.Get("/nodes", h.QueryCompatNodes)
+		q.Get("/devices", h.QueryCompatDevices)
+		q.Get("/flows", h.QueryCompatFlows)
+		q.Get("/senders", h.QueryCompatSenders)
+		q.Get("/receivers", h.QueryCompatReceivers)
+		q.Get("/health", h.QueryCompatHealth)
+	})
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(h.AuthMiddleware)
 		api.Get("/me", h.Me)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/system", h.SystemInfo)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/system/validation", h.ValidateSystemParameters)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/health/detail", h.HealthDetail)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/health/check-node", h.CheckNMOSNode)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/sdn/ping", h.SDNPing)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/sdn/topology", h.SDNTopology)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/sdn/paths", h.SDNPaths)
+
+		// C.1: IS-08 Audio Channel Mapping (proxy to device)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/is08/io", h.IS08GetIO)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/is08/map/active", h.IS08GetMapActive)
+		api.With(requireRole("editor", "admin")).Post("/is08/map/activations", h.IS08PostMapActivations)
+
+		// C.2: Audio signal chain visibility
+		api.With(requireRole("viewer", "editor", "admin")).Get("/audio/flows", h.ListAudioFlows)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/audio/chain", h.GetAudioChain)
+
+		// C.3: Events (IS-07 / tally)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/events", h.ListEvents)
+		api.With(requireRole("editor", "admin")).Post("/events", h.CreateEvent)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/events/is07/sources", h.GetIS07Sources)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/realtime/config", h.RealtimeConfig)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows", h.ListFlows)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/summary", h.FlowSummary)
@@ -129,25 +163,55 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/detect-is05", h.DetectIS05Endpoint)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/detect-is04-from-rds", h.DetectIS04FromRDS)
 		api.With(requireRole("admin")).Post("/nmos/explore-ports", h.ExplorePorts)
+		api.With(requireRole("editor", "admin")).Post("/nmos/register-node", h.RegisterNodeFromPortScan)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/check", h.CheckFlowNMOS)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/{id}/nmos/snapshot", h.GetFlowNMOSSnapShot)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/sync", h.SyncFlowFromNMOS)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/nmos/apply", h.ApplyFlowNMOS)
+		api.With(requireRole("editor", "admin")).Post("/nmos/bulk-patch", h.BulkPatch)
 		api.With(requireRole("viewer", "editor", "admin")).Post("/flows/{id}/is05/receiver-check", h.CheckIS05ReceiverState)
 		api.With(requireRole("editor", "admin")).Post("/flows/{id}/fetch-sdp", h.FetchSDP)
 
 		// Internal NMOS registry (IS-04 style) read-only APIs
 		api.With(requireRole("viewer", "editor", "admin")).Post("/nmos/registry/discover-nodes", h.DiscoverNMOSRegistryNodes)
+		api.With(requireRole("editor", "admin")).Post("/nmos/registry/sync", h.SyncRegistry)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/health", h.NMOSRegistryHealth)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/nodes", h.ListNMOSNodesHandler)
+		api.With(requireRole("editor", "admin")).Delete("/nmos/registry/nodes/{nodeId}", h.DeleteNMOSNodeHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/devices", h.ListNMOSDevicesHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/flows", h.ListNMOSFlowsHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/senders", h.ListNMOSSendersHandler)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/receivers", h.ListNMOSReceiversHandler)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/registry/sites-summary", h.GetNMOSSitesRoomsSummary)
+
+		// D.3: Multi-site views
+		api.With(requireRole("viewer", "editor", "admin")).Get("/flows/cross-site", h.GetCrossSiteRoutings)
+
+		// E.1: Operational playbooks
+		api.With(requireRole("viewer", "editor", "admin")).Get("/playbooks", h.ListPlaybooks)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/playbooks/{id}", h.GetPlaybook)
+		api.With(requireRole("editor", "admin")).Put("/playbooks/{id}", h.UpsertPlaybook)
+		api.With(requireRole("admin")).Delete("/playbooks/{id}", h.DeletePlaybook)
+		api.With(requireRole("editor", "admin")).Post("/playbooks/{id}/execute", h.ExecutePlaybook)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/playbooks/{id}/executions", h.ListPlaybookExecutions)
+
+		// E.2: Scheduling & maintenance windows
+		api.With(requireRole("editor", "admin")).Post("/playbooks/{id}/schedule", h.CreateScheduledPlaybookExecution)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/playbooks/{id}/schedule", h.ListScheduledPlaybookExecutions)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/schedule/playbooks", h.ListScheduledPlaybookExecutions)
+		api.With(requireRole("editor", "admin")).Delete("/schedule/playbooks/{id}", h.DeleteScheduledPlaybookExecution)
+
+		api.With(requireRole("viewer", "editor", "admin")).Get("/maintenance/windows", h.ListMaintenanceWindows)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/maintenance/windows/active", h.GetActiveMaintenanceWindows)
+		api.With(requireRole("editor", "admin")).Post("/maintenance/windows", h.CreateMaintenanceWindow)
+		api.With(requireRole("editor", "admin")).Put("/maintenance/windows/{id}", h.UpdateMaintenanceWindow)
+		api.With(requireRole("admin")).Delete("/maintenance/windows/{id}", h.DeleteMaintenanceWindow)
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/collisions", h.CheckerCollisions)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/nmos", h.CheckerNMOS)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/latest", h.CheckerLatest)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/checker/check", h.CheckCollision)
+		api.With(requireRole("editor", "admin")).Post("/checker/run", h.CheckerRun)
 
 		api.With(requireRole("editor", "admin")).Get("/automation/jobs", h.ListAutomationJobs)
 		api.With(requireRole("editor", "admin")).Get("/automation/jobs/{job_id}", h.GetAutomationJob)
@@ -157,8 +221,12 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("viewer", "editor", "admin")).Get("/automation/summary", h.GetAutomationSummary)
 
 		api.With(requireRole("viewer", "editor", "admin")).Get("/address-map", h.AddressMap)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/address-map/subnet/analysis", h.GetSubnetDetailedAnalysis)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/address/buckets/privileged", h.ListPrivilegedBuckets)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/address/buckets/all", h.ListAllBuckets)
 		api.With(requireRole("viewer", "editor", "admin")).Get("/address/buckets/{id}/children", h.ListBucketChildren)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/address/buckets/{id}/usage", h.GetBucketUsageStats)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/address/buckets/{id}/flows", h.GetBucketFlows)
 		api.With(requireRole("editor", "admin")).Post("/address/buckets/parent", h.CreateParentBucket)
 		api.With(requireRole("editor", "admin")).Post("/address/buckets/child", h.CreateChildBucket)
 		api.With(requireRole("editor", "admin")).Patch("/address/buckets/{id}", h.PatchBucket)
@@ -167,6 +235,56 @@ func (h *Handler) Router() http.Handler {
 		api.With(requireRole("editor", "admin")).Post("/address/buckets/import", h.ImportBuckets)
 		api.With(requireRole("admin")).Get("/logs", h.Logs)
 		api.With(requireRole("admin")).Get("/logs/download", h.DownloadLogs)
+
+		// F.2: Metrics & dashboards
+		api.With(requireRole("viewer", "editor", "admin")).Get("/metrics/summary", h.GetMetricsSummary)
+
+		// NMOS registry configuration (multi-registry support – A.1)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/registry/config", h.GetRegistryConfig)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/registry/config/stats", h.GetRegistryConfigStats)
+		api.With(requireRole("admin")).Put("/registry/config", h.PutRegistryConfig)
+		api.With(requireRole("admin")).Post("/registry/config/remove", h.RemoveRegistryConfig)
+
+		// NMOS registry compatibility matrix (A.2)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/registry/compat", h.RegistryCompatibilityMatrix)
+
+		// NMOS snapshot & conformance (A.5)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/snapshot", h.ExportNMOSSnapshot)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/conformance", h.CheckNMOSConformance)
+
+		// B.1: Receiver connection state (IS-05)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/receiver/connections", h.GetReceiverConnections)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/receiver/{receiver_id}/history", h.GetReceiverConnectionHistory)
+		api.With(requireRole("editor", "admin")).Put("/receiver/connection", h.PutReceiverConnection)
+		api.With(requireRole("editor", "admin")).Delete("/receiver/{receiver_id}/connection", h.DeleteReceiverConnection)
+
+		// BCC-style: IS-05 active state and receiver disable (un-TAKE)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/receivers-active", h.GetReceiversActive)
+		api.With(requireRole("editor", "admin")).Post("/nmos/receiver-disable", h.ReceiverDisable)
+
+		// B.2: Scheduled activations (time-based IS-05 patches)
+		// Note: Specific routes ({id}) must come before generic routes to avoid route conflicts
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/scheduled-activations/{id}", h.GetScheduledActivation)
+		api.With(requireRole("editor", "admin")).Delete("/nmos/scheduled-activations/{id}", h.DeleteScheduledActivation)
+		api.With(requireRole("editor", "admin")).Post("/nmos/scheduled-activations", h.CreateScheduledActivation)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/nmos/scheduled-activations", h.ListScheduledActivations)
+
+		// B.3: Routing policies
+		api.With(requireRole("viewer", "editor", "admin")).Post("/routing/check", h.CheckRoutingPolicy)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/routing/policies/audits", h.ListRoutingPolicyAudits)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/routing/policies/{id}", h.GetRoutingPolicy)
+		api.With(requireRole("editor", "admin")).Put("/routing/policies/{id}", h.UpdateRoutingPolicy)
+		api.With(requireRole("editor", "admin")).Delete("/routing/policies/{id}", h.DeleteRoutingPolicy)
+		api.With(requireRole("editor", "admin")).Post("/routing/policies", h.CreateRoutingPolicy)
+		api.With(requireRole("viewer", "editor", "admin")).Get("/routing/policies", h.ListRoutingPolicies)
+
+		// System backup & restore
+		api.With(requireRole("viewer", "editor", "admin")).Get("/system/backup", h.ExportSystemBackup)
+		api.With(requireRole("admin")).Post("/system/restore", h.ImportSystemBackup)
+
+		// G.3: Interoperability & test harness
+		api.With(requireRole("viewer", "editor", "admin")).Get("/interop/targets", h.ListInteropTargets)
+		api.With(requireRole("editor", "admin")).Post("/interop/test", h.RunInteropTests)
 	})
 
 	return r

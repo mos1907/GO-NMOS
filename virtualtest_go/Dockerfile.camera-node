@@ -1,0 +1,12 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o /camera-node ./cmd/camera-node
+
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates
+COPY --from=build /camera-node /camera-node
+EXPOSE 8180
+ENTRYPOINT ["/camera-node", "-port", "8180", "-label", "Studio B"]

@@ -91,12 +91,20 @@ func (h *Handler) DiscoverNMOS(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Best-effort sync into internal NMOS registry (does not affect response)
-	go h.syncNMOSRegistry(baseURL, version, devicesData, flowsData, sendersData, receiversData)
+	// Sync into internal NMOS registry so registered nodes appear in Registry & Patch (run before response)
+	h.syncNMOSRegistry(baseURL, version, devicesData, flowsData, sendersData, receiversData, "")
+
+	// Discover IS-05 version (best-effort)
+	is05Version := ""
+	if connVers, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/connection/", baseURL)); err == nil && len(connVers) > 0 {
+		sort.Strings(connVers)
+		is05Version = strings.Trim(connVers[len(connVers)-1], "/")
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"base_url":     baseURL,
 		"is04_version": version,
+		"is05_version": is05Version,
 		"senders":      senders,
 		"receivers":    receivers,
 		"counts": map[string]int{
@@ -188,6 +196,7 @@ type flowSnapshot struct {
 	RedundancyGroup   string `json:"redundancy_group,omitempty"`
 	TransportProtocol string `json:"transport_protocol,omitempty"`
 	ST2110Format      string `json:"st2110_format,omitempty"`
+	FormatSummary     string `json:"format_summary,omitempty"` // e.g. 1080i50, 1080p25, L24/48k
 
 	// Raw NMOS payloads for debugging
 	RawNode   map[string]any `json:"raw_node,omitempty"`
@@ -274,9 +283,18 @@ func (h *Handler) SyncFlowFromNMOS(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
+	// Default to full sync when no fields specified (one-click: fill SDP, IPs, NMOS, format)
 	if len(req.Fields) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fields is required"})
-		return
+		req.Fields = []string{
+			"multicast_ip", "source_ip", "port",
+			"source_addr_a", "source_port_a", "multicast_addr_a", "group_port_a",
+			"source_addr_b", "source_port_b", "multicast_addr_b", "group_port_b",
+			"nmos_node_id", "nmos_flow_id", "nmos_sender_id", "nmos_device_id",
+			"nmos_node_label", "nmos_node_description",
+			"nmos_is04_base_url", "nmos_is05_base_url", "nmos_is04_version", "nmos_is05_version",
+			"sdp_url", "sdp_cache", "media_type", "redundancy_group",
+			"transport_protocol", "st2110_format", "format_summary", "data_source",
+		}
 	}
 	timeoutSec := req.Timeout
 	if timeoutSec <= 0 || timeoutSec > 30 {
@@ -311,6 +329,9 @@ func (h *Handler) SyncFlowFromNMOS(w http.ResponseWriter, r *http.Request) {
 		"source_port_a":         func(u map[string]any, s flowSnapshot) { u["source_port_a"] = s.SourcePortA },
 		"multicast_addr_a":      func(u map[string]any, s flowSnapshot) { u["multicast_addr_a"] = s.MulticastAddrA },
 		"group_port_a":          func(u map[string]any, s flowSnapshot) { u["group_port_a"] = s.GroupPortA },
+		"multicast_ip":          func(u map[string]any, s flowSnapshot) { u["multicast_ip"] = s.MulticastAddrA },
+		"source_ip":             func(u map[string]any, s flowSnapshot) { u["source_ip"] = s.SourceAddrA },
+		"port":                  func(u map[string]any, s flowSnapshot) { u["port"] = s.GroupPortA },
 		"source_addr_b":         func(u map[string]any, s flowSnapshot) { u["source_addr_b"] = s.SourceAddrB },
 		"source_port_b":         func(u map[string]any, s flowSnapshot) { u["source_port_b"] = s.SourcePortB },
 		"multicast_addr_b":      func(u map[string]any, s flowSnapshot) { u["multicast_addr_b"] = s.MulticastAddrB },
@@ -331,6 +352,7 @@ func (h *Handler) SyncFlowFromNMOS(w http.ResponseWriter, r *http.Request) {
 		"redundancy_group":      func(u map[string]any, s flowSnapshot) { u["redundancy_group"] = s.RedundancyGroup },
 		"transport_protocol":    func(u map[string]any, s flowSnapshot) { u["transport_protocol"] = s.TransportProtocol },
 		"st2110_format":         func(u map[string]any, s flowSnapshot) { u["st2110_format"] = s.ST2110Format },
+		"format_summary":        func(u map[string]any, s flowSnapshot) { u["format_summary"] = s.FormatSummary },
 		"data_source":           func(u map[string]any, s flowSnapshot) { u["data_source"] = "nmos" },
 	}
 
@@ -468,6 +490,8 @@ func (h *Handler) buildNMOSSnapShot(flow models.Flow, is04Base, is05Base string,
 		}
 	}
 
+	formatSummary := buildFormatSummaryFromFlow(flowObj)
+
 	snap := flowSnapshot{
 		SourceAddrA:         fallback(pickStr(tpA, "source_ip"), parsed.SourceAddrA),
 		SourcePortA:         pickInt(tpA, "source_port"),
@@ -492,12 +516,95 @@ func (h *Handler) buildNMOSSnapShot(flow models.Flow, is04Base, is05Base string,
 		RedundancyGroup:     parsed.RedundancyGroup,
 		TransportProtocol:   fallback(transport, flow.TransportProto),
 		ST2110Format:        asString(flowObj["format"]),
+		FormatSummary:       formatSummary,
 		RawNode:             selfObj,
 		RawFlow:             flowObj,
 		RawSender:           senderObj,
 		RawIS05:             is05Obj,
 	}
 	return snap, nil
+}
+
+// buildFormatSummaryFromFlow builds a short format string from IS-04 flow (e.g. 1080i50, 1080p25, L24/48k).
+func buildFormatSummaryFromFlow(flowObj map[string]any) string {
+	if flowObj == nil {
+		return ""
+	}
+	format := asString(flowObj["format"])
+	if strings.Contains(format, "video") {
+		fw := pickIntAny(flowObj["frame_width"])
+		fh := pickIntAny(flowObj["frame_height"])
+		if fw == 0 && fh == 0 {
+			return ""
+		}
+		interlace := asString(flowObj["interlace_mode"])
+		rate := 0
+		if gr, ok := flowObj["grain_rate"].(map[string]any); ok {
+			n := pickIntAny(gr["numerator"])
+			d := pickIntAny(gr["denominator"])
+			if d > 0 {
+				rate = n / d
+			} else if n > 0 {
+				rate = n
+			}
+		}
+		scan := "p"
+		if strings.Contains(interlace, "interlaced") {
+			scan = "i"
+		}
+		if fh == 1080 {
+			if rate > 0 {
+				return fmt.Sprintf("1080%s%d", scan, rate)
+			}
+			return "1080p"
+		}
+		if fh == 720 {
+			if rate > 0 {
+				return fmt.Sprintf("720%s%d", scan, rate)
+			}
+			return "720p"
+		}
+		if fw > 0 || fh > 0 {
+			if rate > 0 {
+				return fmt.Sprintf("%dx%d%s%d", fw, fh, scan, rate)
+			}
+			return fmt.Sprintf("%dx%d%s", fw, fh, scan)
+		}
+		return ""
+	}
+	if strings.Contains(format, "audio") {
+		sr := 0
+		if sro, ok := flowObj["sample_rate"].(map[string]any); ok {
+			sr = pickIntAny(sro["numerator"])
+			if d := pickIntAny(sro["denominator"]); d > 0 && sr > 0 {
+				sr = sr / d
+			}
+		}
+		ch := pickIntAny(flowObj["channels"])
+		if sr > 0 {
+			if ch > 0 {
+				return fmt.Sprintf("L24/%dk/%d", sr/1000, ch)
+			}
+			return fmt.Sprintf("L24/%dk", sr/1000)
+		}
+	}
+	return ""
+}
+
+func pickIntAny(v any) int {
+	if v == nil {
+		return 0
+	}
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	default:
+		return 0
+	}
 }
 
 func (h *Handler) fetchJSONMapWithClient(client *http.Client, url string) (map[string]any, error) {
@@ -520,9 +627,219 @@ func (h *Handler) fetchJSONMapWithClient(client *http.Client, url string) (map[s
 	return obj, nil
 }
 
+// rawMessageFromMap marshals a map to json.RawMessage for Tags/Meta. Returns empty JSON object on error.
+func rawMessageFromMap(m map[string]any) json.RawMessage {
+	if m == nil {
+		return json.RawMessage(`{}`)
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return b
+}
+
+// getRegistryNodeIDs returns node IDs listed by the given registry Query API URL.
+// Used when removing a registry so we can delete those nodes from the internal registry.
+func (h *Handler) getRegistryNodeIDs(queryURL string) ([]string, error) {
+	raw := strings.TrimSpace(queryURL)
+	raw = strings.TrimRight(raw, "/")
+	root := raw
+	version := ""
+	if idx := strings.Index(raw, "/x-nmos/query/"); idx >= 0 {
+		root = strings.TrimRight(raw[:idx], "/")
+		rest := strings.Trim(raw[idx+len("/x-nmos/query/"):], "/")
+		if rest != "" {
+			version = strings.Split(rest, "/")[0]
+		}
+	}
+	if version == "" {
+		versions, e := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/query/", root))
+		if e != nil || len(versions) == 0 {
+			return nil, fmt.Errorf("could not discover Query API versions: %w", e)
+		}
+		sort.Strings(versions)
+		version = strings.Trim(versions[len(versions)-1], "/")
+	}
+	nodesData, e := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/query/%s/nodes", root, version))
+	if e != nil {
+		return nil, fmt.Errorf("failed to read registry nodes: %w", e)
+	}
+	ids := make([]string, 0, len(nodesData))
+	for _, item := range nodesData {
+		id := asString(item["id"])
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// getRegistryCounts fetches the registry Query API and returns resource counts (nodes, devices, senders, receivers).
+func (h *Handler) getRegistryCounts(queryURL string) (nodes, devices, senders, receivers int, err error) {
+	raw := strings.TrimSpace(queryURL)
+	raw = strings.TrimRight(raw, "/")
+	root := raw
+	version := ""
+	if idx := strings.Index(raw, "/x-nmos/query/"); idx >= 0 {
+		root = strings.TrimRight(raw[:idx], "/")
+		rest := strings.Trim(raw[idx+len("/x-nmos/query/"):], "/")
+		if rest != "" {
+			version = strings.Split(rest, "/")[0]
+		}
+	}
+	if version == "" {
+		versions, e := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/query/", root))
+		if e != nil || len(versions) == 0 {
+			return 0, 0, 0, 0, fmt.Errorf("could not discover Query API versions: %w", e)
+		}
+		sort.Strings(versions)
+		version = strings.Trim(versions[len(versions)-1], "/")
+	}
+	base := fmt.Sprintf("%s/x-nmos/query/%s", root, version)
+	if arr, e := h.fetchJSONArray(base + "/nodes"); e == nil {
+		nodes = len(arr)
+	}
+	if arr, e := h.fetchJSONArray(base + "/devices"); e == nil {
+		devices = len(arr)
+	}
+	if arr, e := h.fetchJSONArray(base + "/senders"); e == nil {
+		senders = len(arr)
+	}
+	if arr, e := h.fetchJSONArray(base + "/receivers"); e == nil {
+		receivers = len(arr)
+	}
+	return nodes, devices, senders, receivers, nil
+}
+
+// syncRegistryFromQueryURL fetches the node list from the given registry Query API URL,
+// then for each node fetches its Node API (devices, flows, senders, receivers) and syncs
+// into the internal registry. Returns number of nodes synced and any base_urls that failed.
+func (h *Handler) syncRegistryFromQueryURL(ctx context.Context, queryURL string) (synced int, failed []string, err error) {
+	raw := strings.TrimSpace(queryURL)
+	raw = strings.TrimRight(raw, "/")
+	root := raw
+	version := ""
+	if idx := strings.Index(raw, "/x-nmos/query/"); idx >= 0 {
+		root = strings.TrimRight(raw[:idx], "/")
+		rest := strings.Trim(raw[idx+len("/x-nmos/query/"):], "/")
+		if rest != "" {
+			version = strings.Split(rest, "/")[0]
+		}
+	}
+	if version == "" {
+		versions, e := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/query/", root))
+		if e != nil || len(versions) == 0 {
+			return 0, nil, fmt.Errorf("could not discover Query API versions: %w", e)
+		}
+		sort.Strings(versions)
+		version = strings.Trim(versions[len(versions)-1], "/")
+	}
+	nodesData, e := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/query/%s/nodes", root, version))
+	if e != nil {
+		return 0, nil, fmt.Errorf("failed to read registry nodes: %w", e)
+	}
+	rewriteLocalhost := strings.Contains(root, "host.docker.internal")
+
+	for _, item := range nodesData {
+		label := fallback(asString(item["label"]), asString(item["id"]))
+		href := strings.TrimRight(asString(item["href"]), "/")
+		baseURLFromItem := strings.TrimRight(asString(item["base_url"]), "/")
+		baseURL := ""
+		if baseURLFromItem != "" {
+			baseURL = baseURLFromItem
+		} else if href != "" {
+			if nidx := strings.Index(href, "/x-nmos/node/"); nidx >= 0 {
+				baseURL = strings.TrimRight(href[:nidx], "/")
+			} else {
+				baseURL = href
+			}
+		}
+		if baseURL == "" {
+			continue
+		}
+		if rewriteLocalhost {
+			baseURL = strings.Replace(baseURL, "localhost", "host.docker.internal", 1)
+			baseURL = strings.Replace(baseURL, "127.0.0.1", "host.docker.internal", 1)
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
+
+		versions, e := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/node/", baseURL))
+		if e != nil || len(versions) == 0 {
+			failed = append(failed, baseURL)
+			continue
+		}
+		sort.Strings(versions)
+		nodeVer := strings.Trim(versions[len(versions)-1], "/")
+		devicesData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/devices", baseURL, nodeVer))
+		flowsData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/flows", baseURL, nodeVer))
+		sendersData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/senders", baseURL, nodeVer))
+		receiversData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/receivers", baseURL, nodeVer))
+		h.syncNMOSRegistry(baseURL, nodeVer, devicesData, flowsData, sendersData, receiversData, label)
+		synced++
+	}
+	return synced, failed, nil
+}
+
+// SyncRegistry re-fetches nodes from one or all configured registries and syncs each node's
+// resources (devices, flows, senders, receivers) into the internal registry.
+// POST /api/nmos/registry/sync. Body optional: { "query_url": "http://..." }.
+// If query_url is omitted, all enabled registries from settings are synced.
+func (h *Handler) SyncRegistry(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		QueryURL string `json:"query_url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	queryURL := strings.TrimSpace(req.QueryURL)
+
+	var urls []string
+	if queryURL != "" {
+		urls = []string{queryURL}
+	} else {
+		raw, err := h.repo.GetSetting(r.Context(), registryConfigSettingKey)
+		if err != nil || raw == "" {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"synced": 0,
+				"failed": []string{},
+				"message": "no query_url provided and no registries configured",
+			})
+			return
+		}
+		var configs []models.RegistryConfig
+		if err := json.Unmarshal([]byte(raw), &configs); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid registry config"})
+			return
+		}
+		for _, c := range configs {
+			if c.Enabled && strings.TrimSpace(c.QueryURL) != "" {
+				urls = append(urls, strings.TrimRight(strings.TrimSpace(c.QueryURL), "/"))
+			}
+		}
+	}
+
+	var totalSynced int
+	var allFailed []string
+	for _, u := range urls {
+		synced, failed, err := h.syncRegistryFromQueryURL(r.Context(), u)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		totalSynced += synced
+		allFailed = append(allFailed, failed...)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"synced": totalSynced,
+		"failed": allFailed,
+		"message": fmt.Sprintf("Synced %d node(s).", totalSynced),
+	})
+}
+
 // syncNMOSRegistry ingests the discovered NMOS resources into the internal registry tables.
-// It is intentionally best-effort and runs in a separate goroutine from DiscoverNMOS.
-func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsData, sendersData, receiversData []map[string]any) {
+// nodeLabelOverride: when non-empty and exactly one node is synced, use as that node's Label (e.g. from RDS).
+// A.3: Preserves tags (site, room, etc.) and meta (network_domain, capabilities) from IS-04 resources.
+func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsData, sendersData, receiversData []map[string]any, nodeLabelOverride string) {
 	ctx := context.Background()
 
 	parsed, err := url.Parse(baseURL)
@@ -531,7 +848,7 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 	}
 	hostname := parsed.Hostname()
 
-	// Build nodes from device.node_id references (we may not have explicit /self nodes here)
+	// Build nodes from device.node_id references; inherit tags/meta from first device per node (A.3)
 	nodesByID := map[string]models.NMOSNode{}
 	for _, d := range devicesData {
 		nodeID := asString(d["node_id"])
@@ -539,21 +856,45 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 			continue
 		}
 		if _, ok := nodesByID[nodeID]; !ok {
+			tags := rawMessageFromMap(asMap(d["tags"]))
+			meta := rawMessageFromMap(asMap(d["meta"]))
 			nodesByID[nodeID] = models.NMOSNode{
 				ID:         nodeID,
 				Label:      nodeID,
 				Hostname:   hostname,
 				APIVersion: version,
+				Tags:       tags,
+				Meta:       meta,
 			}
 		}
 	}
 
+	// Label: override from RDS/UI, or when single node use host:port so label is stable across port variants
+	if len(nodesByID) == 1 {
+		for id, node := range nodesByID {
+			if nodeLabelOverride != "" {
+				node.Label = nodeLabelOverride
+			} else {
+				port := parsed.Port()
+				if port != "" && port != "80" && port != "443" {
+					node.Label = parsed.Hostname() + ":" + port
+				} else {
+					node.Label = parsed.Hostname()
+				}
+				if node.Label == "" {
+					node.Label = node.ID
+				}
+			}
+			nodesByID[id] = node
+			break
+		}
+	}
 	// Upsert nodes
 	for _, node := range nodesByID {
 		_ = h.repo.UpsertNMOSNode(ctx, node)
 	}
 
-	// Upsert devices
+	// Upsert devices (A.3: include tags and meta)
 	for _, d := range devicesData {
 		devID := asString(d["id"])
 		if devID == "" {
@@ -566,11 +907,13 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 			Label:       fallback(asString(d["label"]), devID),
 			Description: asString(d["description"]),
 			Type:        asString(d["type"]),
+			Tags:        rawMessageFromMap(asMap(d["tags"])),
+			Meta:        rawMessageFromMap(asMap(d["meta"])),
 		}
 		_ = h.repo.UpsertNMOSDevice(ctx, dev)
 	}
 
-	// Upsert flows
+	// Upsert flows (A.3: include tags and meta)
 	for _, f := range flowsData {
 		flowID := asString(f["id"])
 		if flowID == "" {
@@ -582,32 +925,64 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 			Description: asString(f["description"]),
 			Format:      asString(f["format"]),
 			SourceID:    asString(f["source_id"]),
+			Tags:        rawMessageFromMap(asMap(f["tags"])),
+			Meta:        rawMessageFromMap(asMap(f["meta"])),
 		}
-		_ = h.repo.UpsertNMOSFlow(ctx, flow)
+		if err := h.repo.UpsertNMOSFlow(ctx, flow); err != nil {
+			fmt.Printf("[syncNMOSRegistry] Error upserting flow %s: %v\n", flowID, err)
+		}
 	}
 
-	// Upsert senders
+	// Upsert senders (A.3: include tags and meta)
 	for _, s := range sendersData {
 		senderID := asString(s["id"])
 		if senderID == "" {
+			continue
+		}
+		deviceID := asString(s["device_id"])
+		if deviceID == "" {
+			// Log warning but continue - device_id might be missing in some implementations
+			fmt.Printf("[syncNMOSRegistry] Warning: sender %s missing device_id, skipping\n", senderID)
+			continue
+		}
+		flowID := asString(s["flow_id"])
+		if flowID == "" {
+			fmt.Printf("[syncNMOSRegistry] Warning: sender %s missing flow_id, skipping\n", senderID)
 			continue
 		}
 		sender := models.NMOSSender{
 			ID:           senderID,
 			Label:        fallback(asString(s["label"]), senderID),
 			Description:  asString(s["description"]),
-			FlowID:       asString(s["flow_id"]),
+			FlowID:       flowID,
 			Transport:    asString(s["transport"]),
 			ManifestHREF: asString(s["manifest_href"]),
-			DeviceID:     asString(s["device_id"]),
+			DeviceID:     deviceID,
+			Tags:         rawMessageFromMap(asMap(s["tags"])),
+			Meta:         rawMessageFromMap(asMap(s["meta"])),
 		}
-		_ = h.repo.UpsertNMOSSender(ctx, sender)
+		if err := h.repo.UpsertNMOSSender(ctx, sender); err != nil {
+			fmt.Printf("[syncNMOSRegistry] Error upserting sender %s (flow_id=%s, device_id=%s): %v\n", senderID, flowID, deviceID, err)
+		}
 	}
 
-	// Upsert receivers
+	// Upsert receivers (A.3: include tags and meta)
+	// Fallback: when a receiver has no device_id, use the single device if this node has exactly one (IS-04 requires device_id; some implementations omit it)
+	var singleDeviceID string
+	if len(devicesData) == 1 {
+		singleDeviceID = asString(devicesData[0]["id"])
+	}
 	for _, rsrc := range receiversData {
 		recID := asString(rsrc["id"])
 		if recID == "" {
+			continue
+		}
+		deviceID := asString(rsrc["device_id"])
+		if deviceID == "" {
+			deviceID = singleDeviceID
+		}
+		if deviceID == "" {
+			fmt.Printf("[syncNMOSRegistry] Warning: receiver %s missing device_id, skipping\n", recID)
 			continue
 		}
 		rec := models.NMOSReceiver{
@@ -616,9 +991,13 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 			Description: asString(rsrc["description"]),
 			Format:      asString(rsrc["format"]),
 			Transport:   asString(rsrc["transport"]),
-			DeviceID:    asString(rsrc["device_id"]),
+			DeviceID:    deviceID,
+			Tags:        rawMessageFromMap(asMap(rsrc["tags"])),
+			Meta:        rawMessageFromMap(asMap(rsrc["meta"])),
 		}
-		_ = h.repo.UpsertNMOSReceiver(ctx, rec)
+		if err := h.repo.UpsertNMOSReceiver(ctx, rec); err != nil {
+			fmt.Printf("[syncNMOSRegistry] Error upserting receiver %s: %v\n", recID, err)
+		}
 	}
 
 	// Broadcast a high-level "sync completed" registry event over WebSocket (best-effort).
@@ -638,8 +1017,9 @@ func (h *Handler) syncNMOSRegistry(baseURL, version string, devicesData, flowsDa
 }
 
 type nmosApplyRequest struct {
-	ConnectionURL string `json:"connection_url"`
-	SenderID      string `json:"sender_id,omitempty"`
+	ConnectionURL  string `json:"connection_url"`
+	SenderID       string `json:"sender_id,omitempty"`
+	OverridePolicy bool   `json:"override_policy,omitempty"` // B.3: If true, proceed despite policy violations
 }
 
 func (h *Handler) ApplyFlowNMOS(w http.ResponseWriter, r *http.Request) {
@@ -673,6 +1053,45 @@ func (h *Handler) ApplyFlowNMOS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// B.3: Policy check - extract receiver_id from URL for check
+	receiverIDForCheck := ""
+	if strings.Contains(parsedURL.Path, "/receivers/") {
+		parts := strings.Split(parsedURL.Path, "/receivers/")
+		if len(parts) > 1 {
+			receiverIDForCheck = strings.Split(parts[1], "/")[0]
+		}
+	}
+	if receiverIDForCheck != "" && req.SenderID != "" {
+		violations := h.checkPoliciesForConnection(r.Context(), req.SenderID, receiverIDForCheck, id, flow.DisplayName, "")
+		if len(violations) > 0 && !req.OverridePolicy {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":       "routing policy violation",
+				"violations":  violations,
+				"override":    "send override_policy: true to proceed",
+			})
+			return
+		}
+		if len(violations) > 0 && req.OverridePolicy {
+			// Record override in audit
+			for _, v := range violations {
+				audit := models.RoutingPolicyAudit{
+					PolicyID:        &v.PolicyID,
+					Action:          "override",
+					SourceID:        req.SenderID,
+					DestinationID:   receiverIDForCheck,
+					FlowID:          &id,
+					ViolationReason: v.Reason,
+				}
+				if claims := r.Context().Value("claims"); claims != nil {
+					if authClaims, ok := claims.(*AuthClaims); ok && authClaims.Username != "" {
+						audit.OverriddenBy = authClaims.Username
+					}
+				}
+				_ = h.repo.RecordRoutingPolicyAudit(r.Context(), audit)
+			}
+		}
+	}
+
 	patchBody := map[string]any{
 		"activation":    map[string]any{"mode": "activate_immediate"},
 		"master_enable": true,
@@ -695,12 +1114,14 @@ func (h *Handler) ApplyFlowNMOS(w http.ResponseWriter, r *http.Request) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		RecordRoutingOperationFailure("apply", "patch_request_failed")
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "patch request failed"})
 		return
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		RecordRoutingOperationFailure("apply", "non_2xx_status")
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"error":       "nmos apply returned non-2xx status",
 			"status_code": resp.StatusCode,
@@ -709,10 +1130,73 @@ func (h *Handler) ApplyFlowNMOS(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	RecordRoutingOperation("apply", "success")
+
+	// B.1: Record connection state after successful IS-05 PATCH
+	// Extract receiver_id from connection URL (e.g. /single/receivers/{receiver_id}/staged)
+	receiverID := ""
+	state := "staged"
+	if strings.Contains(parsedURL.Path, "/receivers/") {
+		parts := strings.Split(parsedURL.Path, "/receivers/")
+		if len(parts) > 1 {
+			receiverPart := strings.Split(parts[1], "/")[0]
+			receiverID = receiverPart
+		}
+		if strings.Contains(parsedURL.Path, "/staged") {
+			state = "staged"
+		} else if strings.Contains(parsedURL.Path, "/active") {
+			state = "active"
+		}
+	}
+
+	if receiverID != "" {
+		conn := models.ReceiverConnection{
+			ReceiverID: receiverID,
+			State:      state,
+			Role:       "master", // Default; can be extended later
+			SenderID:   req.SenderID,
+			FlowID:     &id,
+			ChangedAt:  time.Now(),
+		}
+		// Try to get username from JWT if available
+		if claims := r.Context().Value("claims"); claims != nil {
+			if authClaims, ok := claims.(*AuthClaims); ok && authClaims.Username != "" {
+				conn.ChangedBy = authClaims.Username
+			}
+		}
+		_ = h.repo.UpsertReceiverConnection(r.Context(), conn)
+
+		// Record history
+		hist := models.ReceiverConnectionHistory{
+			ReceiverID: receiverID,
+			State:      state,
+			Role:       "master",
+			SenderID:   req.SenderID,
+			FlowID:     &id,
+			ChangedAt:  time.Now(),
+			Action:     "connect",
+		}
+		if conn.ChangedBy != "" {
+			hist.ChangedBy = conn.ChangedBy
+		}
+		_ = h.repo.RecordReceiverConnectionHistory(r.Context(), hist)
+	}
+
+	// Return flow info so UI can show "flow is connected" and flow details (display_name, multicast, port)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status_code": resp.StatusCode,
 		"body":        string(body),
 		"request":     patchBody,
+		"flow": map[string]any{
+			"id":            flow.ID,
+			"display_name":  flow.DisplayName,
+			"multicast_ip":  flow.MulticastIP,
+			"source_ip":     flow.SourceIP,
+			"port":          flow.Port,
+			"flow_id":       flow.FlowID,
+		},
+		"receiver_id": receiverID,
+		"sender_id":   req.SenderID,
 	})
 }
 
@@ -758,9 +1242,36 @@ func (h *Handler) fetchJSONArray(url string) ([]map[string]any, error) {
 	return items, nil
 }
 
+func (h *Handler) fetchJSONMap(url string) (map[string]any, error) {
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// asMap returns v as map[string]any for tags/meta from JSON. Returns nil if not a map.
+func asMap(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
 }
 
 func fallback(value, fallbackValue string) string {
@@ -852,6 +1363,85 @@ func (h *Handler) ExplorePorts(w http.ResponseWriter, r *http.Request) {
 		"concurrency": concurrency,
 		"timeout_sec": timeout,
 		"results":     results,
+	})
+}
+
+// RegisterNodeFromPortScan registers a discovered NMOS node from Port Explorer or RDS.
+// POST /api/nmos/register-node. Optional label (e.g. from RDS) is used as the node's display name.
+func (h *Handler) RegisterNodeFromPortScan(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL string `json:"base_url"`
+		Label   string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	baseURL := strings.TrimSpace(req.BaseURL)
+	if baseURL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "base_url is required"})
+		return
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	label := strings.TrimSpace(req.Label)
+
+	// Discover IS-04 Node API version
+	versions, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/node/", baseURL))
+	if err != nil || len(versions) == 0 {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not discover IS-04 versions"})
+		return
+	}
+	sort.Strings(versions)
+	version := strings.Trim(versions[len(versions)-1], "/")
+
+	// When label not provided (e.g. port 8080/8081 or Discover at URL), try Node API /self for official name
+	if label == "" {
+		if selfObj, err := h.fetchJSONMap(fmt.Sprintf("%s/x-nmos/node/%s/self", baseURL, version)); err == nil {
+			if l := strings.TrimSpace(asString(selfObj["label"])); l != "" {
+				label = l
+			}
+		}
+	}
+
+	// Fetch node resources
+	devicesData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/devices", baseURL, version))
+	flowsData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/flows", baseURL, version))
+	sendersData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/senders", baseURL, version))
+	receiversData, _ := h.fetchJSONArray(fmt.Sprintf("%s/x-nmos/node/%s/receivers", baseURL, version))
+
+	// Already in registry? (same node_id: do not duplicate, only update label)
+	var nodeID string
+	if len(devicesData) > 0 {
+		nodeID = asString(devicesData[0]["node_id"])
+	}
+	var alreadyRegistered bool
+	var previousLabel string
+	if nodeID != "" {
+		existingNodes, _ := h.repo.ListNMOSNodes(r.Context())
+		for _, n := range existingNodes {
+			if n.ID == nodeID {
+				alreadyRegistered = true
+				previousLabel = n.Label
+				break
+			}
+		}
+	}
+
+	// Sync into internal NMOS registry (label from RDS or /self when set; else host:port)
+	h.syncNMOSRegistry(baseURL, version, devicesData, flowsData, sendersData, receiversData, label)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"base_url":            baseURL,
+		"is04_version":       version,
+		"node_id":            nodeID,
+		"already_registered": alreadyRegistered,
+		"previous_label":     previousLabel,
+		"devices":            len(devicesData),
+		"flows":              len(flowsData),
+		"senders":             len(sendersData),
+		"receivers":           len(receiversData),
+		"registered":   true,
 	})
 }
 
@@ -1057,7 +1647,23 @@ func (h *Handler) DetectIS05Endpoint(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(versions)
 	is04Version := strings.Trim(versions[len(versions)-1], "/")
 
-	// Try IS-05 connection API with same version
+	// First, try to discover IS-05 versions directly
+	is05Versions, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/connection/", baseURL))
+	if err == nil && len(is05Versions) > 0 {
+		sort.Strings(is05Versions)
+		is05Version := strings.Trim(is05Versions[len(is05Versions)-1], "/")
+		detectedURL := fmt.Sprintf("%s/x-nmos/connection/%s", baseURL, is05Version)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"base_url":      baseURL,
+			"is04_version":  is04Version,
+			"is05_base_url": detectedURL,
+			"is05_version":  is05Version,
+			"detected":      true,
+		})
+		return
+	}
+
+	// Fallback: Try IS-05 connection API with same version as IS-04
 	is05Base := fmt.Sprintf("%s/x-nmos/connection/%s", baseURL, is04Version)
 
 	// Test if IS-05 endpoint exists by checking /single/receivers
@@ -1066,20 +1672,22 @@ func (h *Handler) DetectIS05Endpoint(w http.ResponseWriter, r *http.Request) {
 	resp, err := client.Get(testURL)
 	if err == nil {
 		resp.Body.Close()
-		if resp.StatusCode == 200 || resp.StatusCode == 404 {
-			// 200 = exists, 404 = endpoint exists but no receivers (still valid)
+		if resp.StatusCode == 200 {
+			// 200 = exists and has receivers
 			writeJSON(w, http.StatusOK, map[string]any{
 				"base_url":      baseURL,
 				"is04_version":  is04Version,
 				"is05_base_url": is05Base,
+				"is05_version":  is04Version, // Using IS-04 version as fallback
 				"detected":      true,
 			})
 			return
 		}
+		// 404 might mean endpoint doesn't exist, so continue to fallback
 	}
 
-	// If standard pattern failed, try to discover IS-05 versions
-	is05Versions, err := h.fetchJSONList(fmt.Sprintf("%s/x-nmos/connection/", baseURL))
+	// If standard pattern failed, try to discover IS-05 versions (retry)
+	is05Versions, err = h.fetchJSONList(fmt.Sprintf("%s/x-nmos/connection/", baseURL))
 	if err == nil && len(is05Versions) > 0 {
 		sort.Strings(is05Versions)
 		is05Version := strings.Trim(is05Versions[len(is05Versions)-1], "/")

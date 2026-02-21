@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"strconv"
 	"time"
 
 	"go-nmos/backend/internal/models"
+	"go-nmos/backend/internal/schedule"
 )
 
 type AutomationRunner struct {
@@ -18,6 +18,8 @@ type AutomationRunner struct {
 type automationRepo interface {
 	ListAutomationJobs(ctx context.Context) ([]models.AutomationJob, error)
 	DetectCollisions(ctx context.Context) ([]models.CollisionGroup, error)
+	ListFlows(ctx context.Context, limit, offset int, sortBy, sortOrder string) ([]models.Flow, error)
+	ListNMOSSenders(ctx context.Context, deviceID string) ([]models.NMOSSender, error)
 	SaveCheckerResult(ctx context.Context, kind string, result []byte) error
 	UpdateAutomationJobRun(ctx context.Context, jobID, status string, result []byte) error
 }
@@ -52,15 +54,7 @@ func (r *AutomationRunner) runCycle(ctx context.Context) {
 		if !job.Enabled {
 			continue
 		}
-		if job.ScheduleType != "interval" {
-			continue
-		}
-
-		seconds, err := strconv.Atoi(job.ScheduleValue)
-		if err != nil || seconds <= 0 {
-			continue
-		}
-		if job.LastRunAt != nil && now.Sub(*job.LastRunAt) < time.Duration(seconds)*time.Second {
+		if !schedule.ShouldRun(job, now) {
 			continue
 		}
 
@@ -79,10 +73,46 @@ func (r *AutomationRunner) runCycle(ctx context.Context) {
 			_ = r.repo.UpdateAutomationJobRun(ctx, job.JobID, "success", payload)
 
 		case "nmos_check":
-			// Placeholder for full NMOS diff implementation.
-			payload := []byte(`{"message":"nmos check is scheduled but full diff is not implemented yet"}`)
-			_ = r.repo.SaveCheckerResult(ctx, "nmos", payload)
-			_ = r.repo.UpdateAutomationJobRun(ctx, job.JobID, "success", payload)
+			flows, err := r.repo.ListFlows(ctx, 10000, 0, "updated_at", "desc")
+			if err != nil {
+				_ = r.repo.UpdateAutomationJobRun(ctx, job.JobID, "error", []byte(`{"error":"failed to list flows"}`))
+				continue
+			}
+			senders, err := r.repo.ListNMOSSenders(ctx, "")
+			if err != nil {
+				_ = r.repo.UpdateAutomationJobRun(ctx, job.JobID, "error", []byte(`{"error":"failed to list NMOS senders"}`))
+				continue
+			}
+			differences := make([]map[string]any, 0)
+			for _, flow := range flows {
+				if flow.FlowID == "" {
+					continue
+				}
+				found := false
+				for _, sender := range senders {
+					if sender.FlowID == flow.FlowID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					differences = append(differences, map[string]any{
+						"flow_id":      flow.FlowID,
+						"display_name": flow.DisplayName,
+						"issue":        "flow_id not found in NMOS registry",
+						"type":         "missing_sender",
+					})
+				}
+			}
+			payload := map[string]any{
+				"total_differences": len(differences),
+				"items":             differences,
+				"checked_flows":     len(flows),
+				"timeout_seconds":   5,
+			}
+			raw, _ := json.Marshal(payload)
+			_ = r.repo.SaveCheckerResult(ctx, "nmos", raw)
+			_ = r.repo.UpdateAutomationJobRun(ctx, job.JobID, "success", raw)
 		}
 	}
 }

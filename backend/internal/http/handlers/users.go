@@ -36,8 +36,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role == "" {
 		req.Role = "viewer"
 	}
-	if req.Role != "admin" && req.Role != "editor" && req.Role != "viewer" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be one of admin, editor, viewer"})
+	// E.3: Support new roles: viewer, operator, engineer, admin, automation
+	validRoles := map[string]bool{
+		"viewer": true, "operator": true, "engineer": true, "admin": true, "automation": true,
+	}
+	if !validRoles[req.Role] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be one of viewer, operator, engineer, admin, automation"})
 		return
 	}
 
@@ -92,10 +96,14 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		updates["password"] = string(hash)
 	}
 	if req.Role != "" {
-		if req.Role != "admin" && req.Role != "editor" && req.Role != "viewer" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be one of admin, editor, viewer"})
-			return
-		}
+	// E.3: Support new roles
+	validRoles := map[string]bool{
+		"viewer": true, "operator": true, "engineer": true, "admin": true, "automation": true,
+	}
+	if !validRoles[req.Role] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be one of viewer, operator, engineer, admin, automation"})
+		return
+	}
 		updates["role"] = req.Role
 	}
 

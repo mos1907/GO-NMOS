@@ -1,0 +1,45 @@
+# Docker Compose Override for Small Facility Profile
+# Usage: docker compose -f docker-compose.yml -f docker-compose.small-facility.yml up
+
+services:
+  backend:
+    environment:
+      # Small facility: moderate rate limiting
+      - RATE_LIMIT_RPM=600
+      # Production: auth required
+      - DISABLE_AUTH=false
+      # Production: HTTPS recommended
+      - HTTPS_ENABLED=${HTTPS_ENABLED:-true}
+    # Small facility: single instance sufficient
+    deploy:
+      replicas: 1
+    # Add health checks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    # Small facility: moderate resources
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    # Add health checks
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    # Small facility: moderate resources
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M

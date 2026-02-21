@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"bufio"
-	"fmt"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -11,9 +11,28 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
 var logWriteMu sync.Mutex
+
+type structuredLogEntry struct {
+	Timestamp     time.Time `json:"ts"`
+	Level         string    `json:"level"`
+	Kind          string    `json:"kind"`
+	Component     string    `json:"component,omitempty"`
+	Message       string    `json:"message,omitempty"`
+	Method        string    `json:"method,omitempty"`
+	Path          string    `json:"path,omitempty"`
+	Status        int       `json:"status,omitempty"`
+	DurationMs    int64     `json:"duration_ms,omitempty"`
+	User          string    `json:"user,omitempty"`
+	RequestID     string    `json:"request_id,omitempty"`
+	CorrelationID string    `json:"correlation_id,omitempty"`
+	Site          string    `json:"site,omitempty"`
+	RemoteIP      string    `json:"remote_ip,omitempty"`
+}
 
 func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
@@ -83,14 +102,63 @@ func (h *Handler) RequestLogMiddleware(next http.Handler) http.Handler {
 			username = claims.Username
 		}
 
-		apiLine := fmt.Sprintf("%s method=%s path=%s status=%d duration_ms=%d ip=%s user=%s",
-			time.Now().Format(time.RFC3339), r.Method, r.URL.Path, rw.status, duration, r.RemoteAddr, username)
-		_ = appendLogLine(filepath.Join(h.cfg.LogDir, "api.log"), apiLine)
+		requestID := chimw.GetReqID(r.Context())
+		correlationID := r.Header.Get("X-Correlation-ID")
+		if correlationID == "" {
+			correlationID = requestID
+		}
+
+		component := "-"
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			rest := strings.TrimPrefix(r.URL.Path, "/api/")
+			if idx := strings.Index(rest, "/"); idx >= 0 {
+				component = rest[:idx]
+			} else if rest != "" {
+				component = rest
+			}
+		}
+
+		site := r.URL.Query().Get("site")
+
+		apiEntry := structuredLogEntry{
+			Timestamp:     time.Now().UTC(),
+			Level:         "info",
+			Kind:          "api",
+			Component:     component,
+			Method:        r.Method,
+			Path:          r.URL.Path,
+			Status:        rw.status,
+			DurationMs:    duration,
+			User:          username,
+			RequestID:     requestID,
+			CorrelationID: correlationID,
+			Site:          site,
+			RemoteIP:      r.RemoteAddr,
+			Message:       "http_request",
+		}
+		if apiLine, err := json.Marshal(apiEntry); err == nil {
+			_ = appendLogLine(filepath.Join(h.cfg.LogDir, "api.log"), string(apiLine))
+		}
 
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
-			auditLine := fmt.Sprintf("%s action=%s path=%s status=%d user=%s",
-				time.Now().Format(time.RFC3339), r.Method, r.URL.Path, rw.status, username)
-			_ = appendLogLine(filepath.Join(h.cfg.LogDir, "audit.log"), auditLine)
+			auditEntry := structuredLogEntry{
+				Timestamp:     time.Now().UTC(),
+				Level:         "info",
+				Kind:          "audit",
+				Component:     component,
+				Method:        r.Method,
+				Path:          r.URL.Path,
+				Status:        rw.status,
+				User:          username,
+				RequestID:     requestID,
+				CorrelationID: correlationID,
+				Site:          site,
+				RemoteIP:      r.RemoteAddr,
+				Message:       "audit_event",
+			}
+			if auditLine, err := json.Marshal(auditEntry); err == nil {
+				_ = appendLogLine(filepath.Join(h.cfg.LogDir, "audit.log"), string(auditLine))
+			}
 		}
 	})
 }

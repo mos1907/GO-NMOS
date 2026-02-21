@@ -2,15 +2,19 @@
   import EmptyState from "./EmptyState.svelte";
   import { IconSearch } from "../lib/icons.js";
 
-  export let searchTerm = "";
-  export let searchResults = [];
-  export let searchLimit = 50;
-  export let searchOffset = 0;
-  export let searchTotal = 0;
+  let {
+    searchTerm = "",
+    searchResults = [],
+    searchLimit = 50,
+    searchOffset = 0,
+    searchTotal = 0,
+    onRunSearch,
+    onPrevSearchPage,
+    onNextSearchPage,
+  } = $props();
 
-  export let onRunSearch;
-  export let onPrevSearchPage;
-  export let onNextSearchPage;
+  // Ensure searchResults is always an array
+  let safeSearchResults = $derived(Array.isArray(searchResults) ? searchResults : []);
 </script>
 
 <section class="mt-4 space-y-3">
@@ -69,7 +73,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-800">
-        {#if searchResults.length === 0 && searchTerm}
+        {#if safeSearchResults.length === 0 && searchTerm}
           <tr>
             <td colspan="4" class="px-6 py-12">
               <EmptyState
@@ -79,7 +83,7 @@
               />
             </td>
           </tr>
-        {:else if searchResults.length === 0}
+        {:else if safeSearchResults.length === 0}
           <tr>
             <td colspan="4" class="px-6 py-12">
               <EmptyState
@@ -90,7 +94,7 @@
             </td>
           </tr>
         {:else}
-          {#each searchResults as flow}
+          {#each safeSearchResults as flow}
             <tr class="hover:bg-gray-800/70 transition-colors">
               <td class="px-3 py-2 text-[13px] font-medium text-gray-100">{flow.display_name}</td>
               <td class="px-3 py-2 text-gray-300">{flow.flow_id}</td>

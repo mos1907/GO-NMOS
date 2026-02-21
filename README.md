@@ -12,6 +12,16 @@ Production-oriented rewrite baseline of NMOS management stack using **Go + Svelt
 - Frontend: Svelte 5 + Vite + Tailwind CSS
 - Infra: Docker Compose (PostgreSQL + Mosquitto + backend + frontend)
 
+## Screenshots
+
+| Screenshot 1 | Screenshot 2 |
+|--------------|--------------|
+| ![Screenshot 1](screenshots/ss1.png) | ![Screenshot 2](screenshots/ss2.png) |
+
+| Screenshot 3 | Screenshot 4 |
+|--------------|--------------|
+| ![Screenshot 3](screenshots/ss3.png) | ![Screenshot 4](screenshots/ss4.png) |
+
 ## Project Structure
 
 ```
@@ -71,7 +81,6 @@ go-NMOS/
 │   │   │   ├── SearchView.svelte           # Flow search
 │   │   │   ├── NewFlowView.svelte          # Create new flow (modal)
 │   │   │   ├── NMOSView.svelte             # NMOS discovery & apply
-│   │   │   ├── NMOSPatchView.svelte        # NMOS Patch Panel (IS-04/IS-05)
 │   │   │   ├── TopologyView.svelte         # NMOS Topology view
 │   │   │   ├── CheckerView.svelte          # Collision checker
 │   │   │   ├── AutomationJobsView.svelte   # Automation jobs
@@ -99,13 +108,34 @@ go-NMOS/
 ├── deploy/
 │   └── mosquitto.conf              # MQTT broker configuration
 │
-├── docker-compose.yml              # Docker orchestration
+├── docs/                           # Design and reference documentation
+│   ├── FLOW_AND_NODES.md
+│   ├── NMOS_COMPLIANCE.md
+│   ├── NMOS_ORCHESTRATION_DESIGN.md
+│   ├── BCC_NMOS_PATCH_GUI_ANALYSIS.md
+│   ├── INTEROP_MATRIX.md
+│   └── HA_DEPLOYMENT.md
+│
+├── virtualtest_go/                 # Go NMOS test harness (RDS + Studio B camera-node)
+│   ├── cmd/
+│   │   ├── camera-node/            # IS-04/IS-05 + SDP mock node (port 8180)
+│   │   └── rds/                    # IS-04 Query API (port 6062)
+│   ├── docker-compose.yml
+│   └── README.md
+│
+├── virtualtest/                    # Python NMOS test environment (optional)
+│   ├── README.md
+│   ├── QUICK_START.md
+│   └── docs/
+│
+├── docker-compose.yml              # Docker orchestration (backend, frontend, db, mqtt)
+├── docker-compose.lab.yml          # Lab profile overrides
+├── docker-compose.small-facility.yml
+├── docker-compose.large-campus.yml
 ├── Makefile                        # Build & deployment commands
 ├── README.md                       # This file
-├── PROJECT_STATUS.md              # Project status (Turkish)
-├── PROJECT_STATUS_EN.md           # Project status (English)
-├── MQTT_EXPLANATION.md            # MQTT guide (Turkish)
-└── MQTT_EXPLANATION_EN.md         # MQTT guide (English)
+├── TODO.md                         # Roadmap and task tracking
+└── CONTRIBUTING.md
 ```
 
 ## Features
@@ -154,6 +184,10 @@ go-NMOS/
 - `POST /api/nmos/registry/discover-nodes` body: `{ "query_url": "http://<registry>:<port>" }`
   - Discovers nodes from an IS-04 Query API registry
   - Supports both root URLs and versioned Query API URLs
+
+#### IS-05 proxy (receiver active / disable)
+- `GET /api/nmos/receivers-active?is05_base=http://...&receiver_ids=id1,id2` - Fetch active connection state for receivers (BCC-style)
+- `POST /api/nmos/receiver-disable` body: `{ "is05_base": "http://...", "receiver_id": "..." }` - Disable receiver (un-TAKE, master_enable: false)
 
 #### Checker
 - `GET /api/checker/collisions`
@@ -238,6 +272,8 @@ The **Connect RDS** feature allows you to discover multiple nodes from a central
 - `http://192.168.1.50:8080`
 - `http://registry.example.com:8080/x-nmos/query/v1.3`
 
+*Per AMWA IS-04, the Query API is provided only by the Registry; nodes expose only the Node API. External clients (e.g. BCC) that use getSenders/getReceivers must connect to the Registry URL, not to a node URL.*
+
 ### Using the NMOS Patch Panel
 
 The **NMOS Patch Panel** provides a visual router-style interface for connecting IS-04 senders to receivers:
@@ -253,6 +289,7 @@ The **NMOS Patch Panel** provides a visual router-style interface for connecting
 **Status Indicators**:
 - Green dot: Ready to patch (both sender and receiver selected, IS-05 URL configured)
 - Gray dot: Waiting for selection or missing configuration
+- Receiver cards show **Receiving:** (sender name) when connected, and **Enabled** / **Disabled** with a **Disable** button to un-TAKE
 
 ### NMOS Discovery (Legacy View)
 
@@ -322,6 +359,7 @@ MQTT is **enabled by default** for realtime event notifications:
 
 ### Docker Compose Setup
 
+**Standard Setup:**
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -340,6 +378,30 @@ make up
 # Or start only database (for local development)
 docker compose up -d postgres mosquitto
 ```
+
+**Using Profile-Specific Overrides:**
+```bash
+# Lab profile (development/testing)
+cp backend/profiles/lab.env.example backend/.env
+docker compose -f docker-compose.yml -f docker-compose.lab.yml up
+
+# Small facility profile
+cp backend/profiles/small-facility.env.example backend/.env
+# Edit .env: Change JWT_SECRET and INIT_ADMIN_PASSWORD!
+docker compose -f docker-compose.yml -f docker-compose.small-facility.yml up
+
+# Large campus profile
+cp backend/profiles/large-campus.env.example backend/.env
+# Edit .env: Change JWT_SECRET (64+ chars) and INIT_ADMIN_PASSWORD!
+docker compose -f docker-compose.yml -f docker-compose.large-campus.yml up
+```
+
+**Docker Compose Override Files:**
+- `docker-compose.lab.yml` - Lab profile overrides (relaxed resource limits, optional auth, single instance)
+- `docker-compose.small-facility.yml` - Small facility overrides (health checks, moderate resources, single instance)
+- `docker-compose.large-campus.yml` - Large campus overrides (HA-ready, higher resources, multiple replicas reference)
+
+These override files adjust resource limits, health checks, and scaling based on the deployment profile. They can be used with the base `docker-compose.yml` to customize deployments for different scenarios.
 
 After startup:
 
@@ -392,6 +454,40 @@ npm run dev
 
 ## Configuration
 
+### Environment Profiles
+
+For different deployment scenarios, reference configuration profiles are available in `backend/profiles/`:
+
+- **Lab / Single Node** (`lab.env.example`) - Development, testing, < 10 nodes
+- **Small Facility** (`small-facility.env.example`) - Small studios, OB vans, 10-50 nodes
+- **Large Campus** (`large-campus.env.example`) - Large campuses, multiple sites, 50+ nodes
+
+See `backend/profiles/README.md` for detailed guidance on selecting and configuring profiles.
+
+**Quick Start:**
+```bash
+# For lab/development
+cp backend/profiles/lab.env.example backend/.env
+docker compose -f docker-compose.yml -f docker-compose.lab.yml up
+
+# For small facility
+cp backend/profiles/small-facility.env.example backend/.env
+# IMPORTANT: Change JWT_SECRET and INIT_ADMIN_PASSWORD!
+docker compose -f docker-compose.yml -f docker-compose.small-facility.yml up
+
+# For large campus
+cp backend/profiles/large-campus.env.example backend/.env
+# CRITICAL: Change JWT_SECRET (64+ chars) and INIT_ADMIN_PASSWORD!
+docker compose -f docker-compose.yml -f docker-compose.large-campus.yml up
+```
+
+**Docker Compose Override Files:**
+- `docker-compose.lab.yml` - Lab profile overrides (relaxed limits, optional auth)
+- `docker-compose.small-facility.yml` - Small facility overrides (health checks, moderate resources)
+- `docker-compose.large-campus.yml` - Large campus overrides (HA-ready, higher resources, multiple replicas)
+
+These override files adjust resource limits, health checks, and scaling based on the deployment profile.
+
 ### Backend Environment Variables
 
 See `backend/env.example` for all available options. Key variables:
@@ -401,6 +497,8 @@ See `backend/env.example` for all available options. Key variables:
 - `CORS_ORIGIN` - Allowed frontend origin (e.g., `http://localhost:4173`)
 - `MQTT_ENABLED` - Enable/disable MQTT (`true`/`false`)
 - `RATE_LIMIT_RPM` - Requests per minute limit
+- `ALERT_WEBHOOK_URL` - Webhook URL for alerting (optional)
+- `ALERT_SLACK_WEBHOOK_URL` - Slack webhook URL for alerting (optional)
 
 ### Frontend Configuration
 
@@ -411,6 +509,46 @@ Frontend uses Vite and reads API URL from environment. Default API endpoint: `ht
 - Backend writes API/Audit logs to `LOG_DIR` (default `/tmp/go-nmos-logs`)
 - In Docker compose, logs are mounted to host `./logs`
 - View logs in UI via **Logs** tab (admin only)
+
+## High Availability
+
+For production deployments requiring high availability, see [High Availability Deployment Guide](docs/HA_DEPLOYMENT.md).
+
+The guide covers:
+- Database replication and clustering (PostgreSQL streaming replication, Patroni)
+- MQTT broker HA (Mosquitto bridge, VerneMQ cluster)
+- Application layer load balancing (Nginx, Traefik, Kubernetes)
+
+## Interoperability & Test Harness
+
+The platform includes a comprehensive interoperability test harness for validating NMOS device and registry compatibility. See [Interoperability Matrix](docs/INTEROP_MATRIX.md) for detailed test results and compatibility information.
+
+### Features
+
+- **Automated Testing**: Test NMOS nodes and registries against IS-04, IS-05, IS-08, and IS-07 specifications
+- **Reference Targets**: Pre-configured test targets including AMWA NMOS Test Suite
+- **Custom Targets**: Test any NMOS device or registry by providing its base URL
+- **Test Results**: Detailed test results with pass/fail/warning/skip status for each test
+- **Interop Matrix**: Documented compatibility matrix tracking tested devices and versions
+
+### Usage
+
+1. Navigate to **Interop Tests** in the dashboard
+2. Select a reference target or create a custom target
+3. Run tests and review results
+4. Test results include:
+   - IS-04 Node API discovery and resource enumeration
+   - IS-04 Query API discovery and resource queries
+   - IS-05 Connection API discovery and receiver operations
+   - IS-08 Audio Channel Mapping API discovery (when available)
+   - IS-07 Events API discovery (when available)
+
+### API Endpoints
+
+- `GET /api/interop/targets` - List reference test targets
+- `POST /api/interop/test` - Run interoperability tests against a target
+
+See [Interoperability Matrix Documentation](docs/INTEROP_MATRIX.md) for detailed information on test coverage, known limitations, and contributing test results.
 
 ## Security Notes for Production
 
@@ -472,6 +610,13 @@ The backend supports HTTPS with TLS certificates. To enable HTTPS:
 - Check PostgreSQL is running: `docker compose ps`
 - Check logs: `docker compose logs postgres`
 
+### Login / ERR_CONNECTION_RESET (Cannot connect to backend)
+
+- The frontend uses `http://<hostname>:9090/api` by default. If the backend is not running or port 9090 is closed, the connection will reset.
+- **Docker:** Ensure all services are up: `docker compose ps` (backend should be "Up"). Backend logs: `docker compose logs backend`.
+- **Local:** Run the backend on port 9090 or set the API URL for the frontend via `VITE_API_BASE_URL` (e.g. `VITE_API_BASE_URL=http://localhost:9090/api`).
+- Test that the backend responds: `curl http://localhost:9090/api/health`
+
 ### CORS Errors
 
 - Ensure `CORS_ORIGIN` in `backend/.env` matches your frontend URL exactly
@@ -483,11 +628,18 @@ The backend supports HTTPS with TLS certificates. To enable HTTPS:
 - Check IS-04 endpoint is correct (typically `/x-nmos/query/v1.3`)
 - Check network connectivity and firewall rules
 
+### Docker: 502 Bad Gateway on discover-nodes / Registry
+
+- The backend runs inside a container; **localhost** refers to the container itself, not the host machine.
+- If the registry or NMOS nodes run on the **host (Mac/PC)**, use **host.docker.internal** instead of **localhost** in the URL.  
+  Example: `http://localhost:8082` → `http://host.docker.internal:8082`
+- The same applies to Node/IS-05 discovery: use `host.docker.internal` to reach host devices from the container.
+
 ### RDS Connection Issues
 
 - Verify Registry Query API URL is correct
 - Ensure registry is accessible from backend
-- Check registry supports IS-04 Query API (not just Node API)
+- Check registry supports IS-04 Query API (not just Node API). Per AMWA spec, Query API is only on the Registry; node URLs expose only Node API.
 
 ## Contributing
 
@@ -517,3 +669,16 @@ MIT License allows you to:
 - Use privately
 
 The only requirement is to include the original copyright and license notice.
+
+---
+
+## README documentation TODO
+
+The following sections of this README are planned to be updated. Until then, refer to the UI and API for current behaviour.
+
+- [ ] **Automation** – Expand with playbooks, job types, and examples.
+- [ ] **Playbooks** – Document Playbooks workflows and API (when available).
+- [ ] **Schedule** – Document scheduling, maintenance windows, and calendar view.
+- [ ] **IS-08 Audio mapping** – Document audio channel mapping UI and API usage.
+- [ ] **Signal chain** – Document audio/video signal chain view and navigation.
+- [ ] **Multisite view** – Document site-scoped filters and cross-site routing views.

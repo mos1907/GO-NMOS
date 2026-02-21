@@ -1,0 +1,189 @@
+version: '3.8'
+
+services:
+  # Mock NMOS Node 1 - Encoder/Transmitter
+  mock-node-1:
+    build:
+      context: ./mock-devices/mock-node-1
+      dockerfile: Dockerfile
+    container_name: mock-node-1
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ID=550e8400-e29b-41d4-a716-446655440001
+      - NODE_LABEL=Mock Encoder Node 1
+      - NODE_DESCRIPTION=Virtual NMOS encoder for testing
+      - PORT=8080
+      - IS04_VERSION=v1.3
+      - IS05_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Mock NMOS Node 2 - Decoder/Receiver
+  mock-node-2:
+    build:
+      context: ./mock-devices/mock-node-2
+      dockerfile: Dockerfile
+    container_name: mock-node-2
+    ports:
+      - "8081:8081"
+    environment:
+      - NODE_ID=550e8400-e29b-41d4-a716-446655440002
+      - NODE_LABEL=Mock Decoder Node 2
+      - NODE_DESCRIPTION=Virtual NMOS decoder for testing
+      - PORT=8081
+      - IS04_VERSION=v1.3
+      - IS05_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Mock IS-04 Registry (Query API)
+  mock-registry:
+    build:
+      context: ./mock-devices/mock-registry
+      dockerfile: Dockerfile
+    container_name: mock-registry
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - QUERY_VERSION=v1.3
+    networks:
+      - nmos-test-network
+    depends_on:
+      mock-node-1:
+        condition: service_healthy
+      mock-node-2:
+        condition: service_healthy
+      mock-studio1:
+        condition: service_healthy
+      mock-tx:
+        condition: service_healthy
+      mock-multiviewer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Campus-A Studio-1: 4 cam, 4 playout, CG, mic, VM 16in, PGM/Clean out
+  mock-studio1:
+    build:
+      context: ./mock-devices/mock-studio1
+      dockerfile: Dockerfile
+    container_name: mock-studio1
+    ports:
+      - "8090:8090"
+    environment:
+      - NODE_ID=550e8400-e29b-41d4-a716-446655440010
+      - NODE_LABEL=Campus-A Studio-1
+      - PORT=8090
+      - SOURCE_IP=192.168.1.10
+      - IS04_VERSION=v1.3
+      - IS05_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Campus-A TX: branding CG, MCR 8in, TX Clean/PGM
+  mock-tx:
+    build:
+      context: ./mock-devices/mock-tx
+      dockerfile: Dockerfile
+    container_name: mock-tx
+    ports:
+      - "8091:8091"
+    environment:
+      - NODE_ID=550e8400-e29b-41d4-a716-446655440020
+      - NODE_LABEL=Campus-A TX
+      - PORT=8091
+      - SOURCE_IP=192.168.1.20
+      - IS04_VERSION=v1.3
+      - IS05_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Campus-A Multiviewer: 16in, 4out
+  mock-multiviewer:
+    build:
+      context: ./mock-devices/mock-multiviewer
+      dockerfile: Dockerfile
+    container_name: mock-multiviewer
+    ports:
+      - "8092:8092"
+    environment:
+      - NODE_ID=550e8400-e29b-41d4-a716-446655440030
+      - NODE_LABEL=Campus-A Multiviewer
+      - PORT=8092
+      - SOURCE_IP=192.168.1.30
+      - IS04_VERSION=v1.3
+      - IS05_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8092/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Mock IS-07 Event & Tally Service
+  mock-is07:
+    build:
+      context: ./mock-devices/mock-is07
+      dockerfile: Dockerfile
+    container_name: mock-is07
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - EVENTS_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Mock IS-08 Audio Channel Mapping
+  mock-is08:
+    build:
+      context: ./mock-devices/mock-is08
+      dockerfile: Dockerfile
+    container_name: mock-is08
+    ports:
+      - "8084:8084"
+    environment:
+      - PORT=8084
+      - CHANNELMAPPING_VERSION=v1.0
+    networks:
+      - nmos-test-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  nmos-test-network:
+    driver: bridge

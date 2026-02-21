@@ -1,0 +1,31 @@
+# Docker Compose Override for Lab Profile
+# Usage: docker compose -f docker-compose.yml -f docker-compose.lab.yml up
+
+services:
+  backend:
+    environment:
+      # Override for lab: relaxed rate limiting
+      - RATE_LIMIT_RPM=1200
+      # Lab: auth can be disabled for convenience
+      - DISABLE_AUTH=${DISABLE_AUTH:-false}
+      # Lab: HTTPS typically disabled
+      - HTTPS_ENABLED=false
+    # Lab: single instance, no scaling
+    deploy:
+      replicas: 1
+
+  db:
+    # Lab: smaller resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  mqtt:
+    # Lab: basic MQTT config
+    deploy:
+      resources:
+        limits:
+          memory: 128M

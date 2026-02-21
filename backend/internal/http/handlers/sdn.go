@@ -87,3 +87,50 @@ func (h *Handler) SDNPing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SDNTopology returns network topology (nodes and links). Stub implementation for B.4 / IS-06.
+// If sdn_controller_url is set, could proxy to controller; for now returns demo data.
+func (h *Handler) SDNTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	// Stub: demo nodes and links for UI
+	out := map[string]any{
+		"nodes": []map[string]any{
+			{"id": "switch-1", "label": "Core Switch 1", "type": "switch"},
+			{"id": "switch-2", "label": "Core Switch 2", "type": "switch"},
+			{"id": "node-a", "label": "Node A", "type": "device"},
+			{"id": "node-b", "label": "Node B", "type": "device"},
+		},
+		"links": []map[string]any{
+			{"id": "link-1", "source": "switch-1", "target": "switch-2"},
+			{"id": "link-2", "source": "switch-1", "target": "node-a"},
+			{"id": "link-3", "source": "switch-2", "target": "node-b"},
+		},
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// SDNPaths returns available paths between source and destination. Stub for B.4.
+// Query params: from, to (node ids). Returns list of path objects with id, name, from, to, link_ids.
+func (h *Handler) SDNPaths(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	from := strings.TrimSpace(r.URL.Query().Get("from"))
+	to := strings.TrimSpace(r.URL.Query().Get("to"))
+	// Stub: return demo paths; if from/to provided, filter or use in label
+	if from == "" {
+		from = "node-a"
+	}
+	if to == "" {
+		to = "node-b"
+	}
+	out := []map[string]any{
+		{"id": "path-1", "name": "Path 1 (" + from + " → " + to + ")", "from": from, "to": to, "link_ids": []string{"link-2", "link-1", "link-3"}},
+		{"id": "path-2", "name": "Path 2 (backup)", "from": from, "to": to, "link_ids": []string{"link-2", "link-1", "link-3"}},
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"paths": out})
+}
+

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -144,6 +145,36 @@ func (h *Handler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "display_name is required"})
 		return
 	}
+	// If flow_id is provided and a flow with that flow_id already exists, return it (avoid duplicates)
+	if req.FlowID != "" {
+		existing, err := h.repo.GetFlowByFlowID(r.Context(), req.FlowID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "lookup failed"})
+			return
+		}
+		if existing != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id": existing.ID, "flow_id": existing.FlowID, "display_name": existing.DisplayName,
+			})
+			return
+		}
+	}
+	// If a flow with the same display_name already exists, return it and do not create a duplicate
+	existingByName, err := h.repo.GetFlowByDisplayName(r.Context(), req.DisplayName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "lookup failed"})
+		return
+	}
+	if existingByName != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":             existingByName.ID,
+			"flow_id":        existingByName.FlowID,
+			"display_name":   existingByName.DisplayName,
+			"already_exists": true,
+			"message":        "A flow with this name already exists. Using existing flow.",
+		})
+		return
+	}
 	if req.FlowID == "" {
 		req.FlowID = uuid.NewString()
 	}
@@ -226,13 +257,32 @@ func (h *Handler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish MQTT event
-	if h.mqtt != nil {
-		flowMap := flowToMap(flow)
-		h.mqtt.PublishFlowEvent("created", flow.FlowID, flowMap, nil)
+	// Auto-fetch SDP when sdp_url/manifest URL is provided (e.g. flow created from registry) so multicast_ip, source_ip, port are filled
+	if req.SDPURL != "" {
+		updates, fetchErr := fetchSDPFromURL(req.SDPURL)
+		if fetchErr == nil && len(updates) > 0 {
+			_ = h.repo.PatchFlow(r.Context(), id, updates)
+		}
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "flow_id": flow.FlowID})
+	// Publish MQTT event
+	if h.mqtt != nil {
+		createdFlow, _ := h.repo.GetFlowByID(r.Context(), id)
+		if createdFlow != nil {
+			flowMap := flowToMap(*createdFlow)
+			h.mqtt.PublishFlowEvent("created", createdFlow.FlowID, flowMap, nil)
+		} else {
+			flowMap := flowToMap(flow)
+			h.mqtt.PublishFlowEvent("created", flow.FlowID, flowMap, nil)
+		}
+	}
+
+	createdFlow, _ := h.repo.GetFlowByID(r.Context(), id)
+	if createdFlow != nil {
+		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "flow_id": flow.FlowID, "flow": createdFlow})
+	} else {
+		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "flow_id": flow.FlowID})
+	}
 }
 
 func (h *Handler) FlowSummary(w http.ResponseWriter, r *http.Request) {
@@ -465,6 +515,73 @@ func (h *Handler) SetFlowLock(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"flow_id": currentFlow.FlowID, "locked": payload.Locked})
 }
 
+// fetchSDPFromURL fetches SDP from manifestURL (rewriting localhost for Docker), parses it and returns
+// a map of flow field updates. Original manifestURL is stored as sdp_url; fetch uses localhost→host.docker.internal.
+func fetchSDPFromURL(manifestURL string) (map[string]any, error) {
+	manifestURL = strings.TrimSpace(manifestURL)
+	if manifestURL == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(manifestURL, "http://") && !strings.HasPrefix(manifestURL, "https://") {
+		return nil, nil
+	}
+	fetchURL := manifestURL
+	if strings.Contains(fetchURL, "localhost") {
+		fetchURL = strings.Replace(fetchURL, "localhost", "host.docker.internal", 1)
+	}
+	if strings.Contains(fetchURL, "127.0.0.1") {
+		fetchURL = strings.Replace(fetchURL, "127.0.0.1", "host.docker.internal", 1)
+	}
+	// virtualtest_go camera-node is in a different compose; backend cannot resolve camera-node hostname
+	if strings.Contains(fetchURL, "camera-node") {
+		fetchURL = strings.Replace(fetchURL, "camera-node", "host.docker.internal", 1)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(fetchURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("SDP fetch returned %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	sdpText := strings.TrimSpace(string(body))
+	parsed := sdp.ParseSDP(sdpText)
+	updates := map[string]any{
+		"sdp_url":   manifestURL,
+		"sdp_cache": sdpText,
+	}
+	if parsed.MediaType != "" {
+		updates["media_type"] = parsed.MediaType
+	}
+	if parsed.RedundancyGroup != "" {
+		updates["redundancy_group"] = parsed.RedundancyGroup
+	}
+	if parsed.MulticastAddrA != "" {
+		updates["multicast_addr_a"] = parsed.MulticastAddrA
+	}
+	if parsed.SourceAddrA != "" {
+		updates["source_addr_a"] = parsed.SourceAddrA
+	}
+	if parsed.GroupPortA > 0 {
+		updates["group_port_a"] = parsed.GroupPortA
+	}
+	if parsed.MulticastAddrA != "" {
+		updates["multicast_ip"] = parsed.MulticastAddrA
+	}
+	if parsed.SourceAddrA != "" {
+		updates["source_ip"] = parsed.SourceAddrA
+	}
+	if parsed.GroupPortA > 0 {
+		updates["port"] = parsed.GroupPortA
+	}
+	return updates, nil
+}
+
 // FetchSDP fetches SDP content from manifest_url and updates the flow.
 func (h *Handler) FetchSDP(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -490,72 +607,30 @@ func (h *Handler) FetchSDP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flow, err := h.repo.GetFlowByID(r.Context(), id)
+	_, err = h.repo.GetFlowByID(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "flow not found"})
 		return
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(manifestURL)
+	updates, err := fetchSDPFromURL(manifestURL)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to fetch SDP: " + err.Error()})
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "SDP fetch returned " + strconv.Itoa(resp.StatusCode)})
+	if len(updates) == 0 {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "no SDP data from URL"})
 		return
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read SDP"})
-		return
-	}
-	sdpText := strings.TrimSpace(string(body))
-
-	parsed := sdp.ParseSDP(sdpText)
-
-	updates := map[string]any{
-		"sdp_url":   manifestURL,
-		"sdp_cache": sdpText,
-	}
-	// Persist parsed values on the flow record (mmam-style richness)
-	if parsed.MediaType != "" {
-		updates["media_type"] = parsed.MediaType
-	}
-	if parsed.RedundancyGroup != "" {
-		updates["redundancy_group"] = parsed.RedundancyGroup
-	}
-	if parsed.MulticastAddrA != "" {
-		updates["multicast_addr_a"] = parsed.MulticastAddrA
-	}
-	if parsed.SourceAddrA != "" {
-		updates["source_addr_a"] = parsed.SourceAddrA
-	}
-	if parsed.GroupPortA > 0 {
-		updates["group_port_a"] = parsed.GroupPortA
-	}
-	if parsed.MulticastAddrA != "" && flow.MulticastIP == "" {
-		updates["multicast_ip"] = parsed.MulticastAddrA
-	}
-	if parsed.SourceAddrA != "" && flow.SourceIP == "" {
-		updates["source_ip"] = parsed.SourceAddrA
-	}
-	if parsed.GroupPortA > 0 && flow.Port == 0 {
-		updates["port"] = parsed.GroupPortA
-	}
-
 	if err := h.repo.PatchFlow(r.Context(), id, updates); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "update failed"})
 		return
 	}
-
 	updatedFlow, _ := h.repo.GetFlowByID(r.Context(), id)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"sdp_url": manifestURL,
-		"parsed":  parsed,
+		"parsed":  sdp.ParseSDP(updatedFlow.SDPCache),
 		"flow":    updatedFlow,
 	})
 }
@@ -600,6 +675,7 @@ func flowToMap(f models.Flow) map[string]interface{} {
 	m["management_url"] = f.ManagementURL
 	m["media_type"] = f.MediaType
 	m["st2110_format"] = f.ST2110Format
+	m["format_summary"] = f.FormatSummary
 	m["redundancy_group"] = f.RedundancyGroup
 	m["data_source"] = f.DataSource
 	m["rds_address"] = f.RDSAddress

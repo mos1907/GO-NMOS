@@ -13,17 +13,29 @@ const normalizedEnvApiBase =
 
 const API_BASE = normalizedEnvApiBase || defaultApiBase;
 
+function isNetworkError(err) {
+  return err?.message?.includes("Failed to fetch") || err?.message?.includes("Load failed") || err?.name === "TypeError";
+}
+
 export async function api(path, { method = "GET", token, body } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (e) {
+    if (isNetworkError(e)) {
+      throw new Error(`Cannot connect to backend (${API_BASE}). Ensure the backend is running (e.g. docker compose up or port 9090).`);
+    }
+    throw e;
+  }
 
   let data = {};
   try {
@@ -45,11 +57,19 @@ export async function apiWithMeta(path, { method = "GET", token, body } = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (e) {
+    if (isNetworkError(e)) {
+      throw new Error(`Cannot connect to backend (${API_BASE}). Ensure the backend is running (e.g. docker compose up or port 9090).`);
+    }
+    throw e;
+  }
 
   let data = {};
   try {

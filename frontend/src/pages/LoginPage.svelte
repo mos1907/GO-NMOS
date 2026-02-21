@@ -1,6 +1,7 @@
 <script>
   import { api } from "../lib/api.js";
   import { setAuth } from "../stores/auth.js";
+  import { addNotification } from "../lib/notifications.js";
 
   let username = "";
   let password = "";
@@ -21,6 +22,7 @@
       onSuccess?.();
     } catch (e) {
       error = e.message;
+      addNotification("error", e.message);
     } finally {
       loading = false;
     }

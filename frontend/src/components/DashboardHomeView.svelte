@@ -2,33 +2,41 @@
   import EmptyState from "./EmptyState.svelte";
   import { IconPlus } from "../lib/icons.js";
 
-  export let summary = { total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 };
-  export let flows = [];
-  export let flowTotal = 0;
-  export let onCreateFlow = null;
-  export let systemInfo = null;
-  export let realtimeEvents = [];
-  export let registryEvents = [];
-  export let registryHealth = null;
-  export let automationSummary = null;
+  let {
+    summary = { total: 0, active: 0, locked: 0, unused: 0, maintenance: 0 },
+    flows = [],
+    flowTotal = 0,
+    onCreateFlow = null,
+    systemInfo = null,
+    realtimeEvents = [],
+    registryEvents = [],
+    registryHealth = null,
+    automationSummary = null,
+    registryConfigs = [],
+    registryCompat = [],
+    sitesRoomsSummary = null,
+    // Diagnostics / Health panel
+    healthDetail = null,
+    healthLoading = false,
+    healthError = "",
+    lastHealthLoadedAt = "",
+    onRunHealthDetail = null,
+    // Diagnostics: Check Node at URL
+    nodeCheckUrl = "",
+    nodeCheckLoading = false,
+    nodeCheckError = "",
+    nodeCheckResult = null,
+    onNodeUrlChange = null,
+    onRunNodeCheck = null,
+  } = $props();
 
-  // Diagnostics / Health panel
-  export let healthDetail = null;
-  export let healthLoading = false;
-  export let healthError = "";
-  export let lastHealthLoadedAt = "";
-  export let onRunHealthDetail = null;
-
-  // Diagnostics: Check Node at URL
-  export let nodeCheckUrl = "";
-  export let nodeCheckLoading = false;
-  export let nodeCheckError = "";
-  export let nodeCheckResult = null;
-  export let onNodeUrlChange = null;
-  export let onRunNodeCheck = null;
+  // Safe derived: UI won't break if parent sends null or $state proxy
+  // In Svelte 5, $state proxies are array-like (length, map, filter work)
+  // Use flows directly in $derived(); use || [] for null check
+  const safeFlows = $derived(flows || []);
 </script>
 
-<section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-3 mb-4">
+<section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-9 gap-3 mb-4">
   <div class="rounded-xl border border-gray-800 bg-gray-900 px-3 py-3 shadow-sm">
     <p class="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Total</p>
     <p class="mt-1 text-2xl font-semibold text-gray-100">{summary.total}</p>
@@ -84,6 +92,44 @@
       <p class="mt-1 text-[11px] text-purple-100/80">No automation/check results yet.</p>
     {/if}
   </div>
+  <div class="rounded-xl border border-teal-700 bg-teal-950 px-3 py-3 shadow-sm">
+    <p class="text-[11px] text-teal-300 font-medium uppercase tracking-wide">Registries</p>
+    {#if registryConfigs && registryConfigs.length > 0}
+      <div class="mt-1 text-[11px] text-teal-100 space-y-0.5">
+        <div>
+          Total: <span class="font-semibold">{registryConfigs.length}</span>
+        </div>
+        <div>
+          Enabled:
+          <span class="font-semibold">
+            {registryConfigs.filter((r) => r.enabled).length}
+          </span>
+        </div>
+      </div>
+    {:else}
+      <p class="mt-1 text-[11px] text-teal-100/80">No registries configured.</p>
+    {/if}
+  </div>
+  <div class="rounded-xl border border-violet-700 bg-violet-950 px-3 py-3 shadow-sm">
+    <p class="text-[11px] text-violet-300 font-medium uppercase tracking-wide">Sites & Rooms</p>
+    {#if sitesRoomsSummary}
+      <div class="mt-1 text-[11px] text-violet-100 space-y-0.5">
+        <div>
+          Sites: <span class="font-semibold">{sitesRoomsSummary.sites?.length || 0}</span>
+        </div>
+        <div>
+          Rooms: <span class="font-semibold">{sitesRoomsSummary.rooms?.length || 0}</span>
+        </div>
+        {#if sitesRoomsSummary.domains?.length}
+          <div>
+            Domains: <span class="font-semibold">{sitesRoomsSummary.domains.length}</span>
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <p class="mt-1 text-[11px] text-violet-100/80">No site/room tags found.</p>
+    {/if}
+  </div>
 </section>
 
 <section class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm">
@@ -93,7 +139,7 @@
       <p class="text-[11px] text-gray-400 mt-0.5">Summary of recently added/updated flows</p>
     </div>
     <span class="text-[11px] text-gray-300 bg-slate-900 px-2 py-0.5 rounded-full border border-gray-700">
-      Showing {Math.min(flows.length, 12)} of {flowTotal}
+      Showing {Math.min(safeFlows.length, 12)} of {flowTotal || 0}
     </span>
   </div>
   <div class="overflow-x-auto">
@@ -108,7 +154,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-800">
-        {#if flows.length === 0}
+        {#if safeFlows.length === 0}
           <tr>
             <td colspan="5" class="px-6 py-12">
               <EmptyState
@@ -121,7 +167,7 @@
             </td>
           </tr>
         {:else}
-          {#each flows.slice(0, 12) as flow}
+          {#each safeFlows.slice(0, 12) as flow}
             <tr class="hover:bg-gray-800/70 transition-colors">
               <td class="px-4 py-2 text-gray-100 truncate text-[13px] font-medium">{flow.display_name}</td>
               <td class="px-4 py-2 text-gray-300 truncate">{flow.flow_id}</td>
@@ -146,8 +192,66 @@
   </div>
 </section>
 
-<section class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-  <div class="space-y-3">
+<section class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+  <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-100">IS-04 Compatibility Matrix</h3>
+          <p class="text-[11px] text-gray-400 mt-0.5">Configured registries vs expected IS-04</p>
+        </div>
+      </div>
+      <div class="max-h-40 overflow-y-auto text-[11px]">
+        {#if !registryCompat || registryCompat.length === 0}
+          <div class="px-4 py-3 text-gray-500">No registry compatibility data yet.</div>
+        {:else}
+          <table class="min-w-full">
+            <thead>
+              <tr class="bg-gray-800/60">
+                <th class="px-3 py-2 text-left font-medium text-gray-200">Name</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-200">Role</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-200">Query ver</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-200">Expected</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-200">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800">
+              {#each registryCompat as reg}
+                <tr>
+                  <td class="px-3 py-1.5 text-gray-100 truncate">
+                    {reg.name || "(unnamed)"}
+                  </td>
+                  <td class="px-3 py-1.5 text-gray-300">
+                    {reg.role || "-"}
+                  </td>
+                  <td class="px-3 py-1.5 text-gray-300">
+                    {reg.chosen_query_ver || "-"}
+                  </td>
+                  <td class="px-3 py-1.5 text-gray-300">
+                    {reg.expected_is04 || "-"}
+                  </td>
+                  <td class="px-3 py-1.5">
+                    <span
+                      class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide
+                        {reg.status === 'ok'
+                          ? 'bg-emerald-950 text-emerald-200 border border-emerald-700'
+                          : reg.status === 'warning'
+                            ? 'bg-amber-950 text-amber-200 border border-amber-700'
+                            : reg.status === 'unsupported'
+                              ? 'bg-slate-900 text-slate-200 border border-slate-700'
+                              : 'bg-red-950 text-red-200 border border-red-700'}"
+                      title={reg.error}
+                    >
+                      {reg.status}
+                    </span>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </div>
+    </div>
+
     <div class="rounded-xl border border-gray-800 bg-gray-900 shadow-sm">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <div>
@@ -326,6 +430,57 @@
               Last run: {new Date(lastHealthLoadedAt).toLocaleString()}
             </p>
           {/if}
+
+          <!-- F.3: Incident Hints -->
+          {#if healthDetail?.hints && healthDetail.hints.length > 0}
+            <div class="mt-4 pt-3 border-t border-gray-800">
+              <p class="text-[10px] text-gray-500 mb-2 uppercase font-semibold">What to Check Next</p>
+              <div class="space-y-2">
+                {#each healthDetail.hints as hint}
+                  <div class="rounded-lg border p-2.5 {
+                    hint.severity === 'critical' 
+                      ? 'border-red-800 bg-red-950/30' 
+                      : hint.severity === 'error'
+                      ? 'border-orange-800 bg-orange-950/30'
+                      : 'border-yellow-800 bg-yellow-950/30'
+                  }">
+                    <div class="flex items-start justify-between gap-2 mb-1.5">
+                      <div class="flex-1">
+                        <div class="flex items-center gap-1.5 mb-1">
+                          <span class="text-[10px] font-semibold uppercase tracking-wide {
+                            hint.severity === 'critical'
+                              ? 'text-red-300'
+                              : hint.severity === 'error'
+                              ? 'text-orange-300'
+                              : 'text-yellow-300'
+                          }">
+                            {hint.severity}
+                          </span>
+                          <span class="text-[10px] text-gray-400">·</span>
+                          <span class="text-[10px] text-gray-400">{hint.component}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-200 mb-0.5">{hint.title}</p>
+                        <p class="text-[11px] text-gray-400">{hint.message}</p>
+                      </div>
+                    </div>
+                    {#if hint.suggestions && hint.suggestions.length > 0}
+                      <div class="mt-2 pt-2 border-t border-gray-800/50">
+                        <p class="text-[10px] text-gray-500 mb-1.5 uppercase">Suggestions:</p>
+                        <ul class="space-y-1">
+                          {#each hint.suggestions as suggestion}
+                            <li class="text-[11px] text-gray-300 flex items-start gap-1.5">
+                              <span class="text-gray-500 mt-0.5">•</span>
+                              <span>{suggestion}</span>
+                            </li>
+                          {/each}
+                        </ul>
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         {/if}
 
         <div class="border-t border-gray-800 pt-3 mt-2 space-y-2">
@@ -364,5 +519,4 @@
         </div>
       </div>
     </div>
-  </div>
 </section>
